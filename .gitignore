@@ -1,0 +1,51 @@
+# macOS and operating system metadata
+.DS_Store
+._*
+
+# Verilog simulation outputs
+*.vcd
+*.vvp
+*.fst
+*.lxt
+*.lxt2
+*.wlf
+*.log
+
+# Temporary simulator files
+work/
+*.dump
+*.jou
+*.pb
+transcript
+
+# Synthesis outputs
+*.edf
+*.edif
+*.ngo
+*.ngc
+*.syr
+*.xmsgs
+
+# FPGA implementation outputs
+*.bit
+*.bin
+*.mcs
+*.rpt
+*.runs/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.gen/
+
+# Vivado and ModelSim temporary folders
+.Xil/
+vivado*/
+modelsim*/
+questa*/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
