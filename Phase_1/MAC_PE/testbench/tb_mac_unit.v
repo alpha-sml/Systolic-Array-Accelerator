@@ -270,12 +270,47 @@ module tb_mac_unit;
         check_acc(32'sd114561, "32-bit headroom: acc = 114561 (> 16-bit signed limit)");
 
         // -------------------------------------------------------------
-        // Test 11: Overflow Wrap-Around Verification
+        // Test 11: 32-Bit Signed Overflow Wrap-Around Verification
         // -------------------------------------------------------------
-        // Direct test of 32-bit two's complement wrap:
-        // Set accumulator near 0x7FFFFFFF via loop or clear/preset
-        // Here we test accumulator addition across the 32-bit boundary
+        // Clear accumulator first
         clr = 1'b1;
+        step;
+        clr = 1'b0;
+
+        // Drive accumulator near max positive signed value (0x7FFFFFFF = +2,147,483,647)
+        // 131,071 cycles of 16,384 (-128 * -128) accumulates to 2,147,467,264 (0x7FFFC000)
+        a  = -8'sd128;
+        b  = -8'sd128;
+        en = 1'b1;
+        repeat (131071) step;
+        check_acc(32'sd2147467264, "Drive acc near max positive 32-bit value (0x7FFFC000)");
+
+        // Add positive product crossing the signed 32-bit boundary (2147467264 + 16384 = 2147483648)
+        // Wraps into negative range according to two's-complement arithmetic: -2147483648 (0x80000000)
+        step;
+        check_acc(32'sh8000_0000, "Signed 32-bit overflow wraps to -2147483648 (0x80000000)");
+
+        // Add another positive product (+100) to verify continuing two's-complement arithmetic
+        a = 8'sd10;
+        b = 8'sd10;
+        step;
+        check_acc(32'sh8000_0064, "Subsequent positive addition: acc = -2147483548 (0x80000064)");
+
+        // Clear and recovery check
+        clr = 1'b1;
+        en  = 1'b0;
+        step;
+        check_acc(32'sd0, "Post-overflow synchronous clear: acc = 0");
+
+        clr = 1'b0;
+        en  = 1'b1;
+        a   = 8'sd5;
+        b   = 8'sd6;
+        step;
+        check_acc(32'sd30, "Post-overflow recovery: normal accumulation 5*6 = 30");
+
+        clr = 1'b1;
+        en  = 1'b0;
         step;
         clr = 1'b0;
 
@@ -317,9 +352,9 @@ module tb_mac_unit;
         $finish;
     end
 
-    // Watchdog timer (50 us)
+    // Watchdog timer (50 ms)
     initial begin
-        #50000;
+        #50000000;
         $display("ERROR: Watchdog timeout in tb_mac_unit!");
         $fatal(1);
     end
