@@ -10,9 +10,12 @@ accumulators.
 The integrated data path is:
 
 ```text
-Host interface -> Input buffer -> Systolic controller -> Systolic array
-                                                        -> Output buffer
-Host readback  <----------------------------------------+
+Host interface -> Matrix interface -> Input buffer -> Systolic array
+                       |                    ^              |
+                       |                    |              v
+                       +-> Systolic controller ------> Output buffer
+                                                        |
+Host result readback <---------------------------------+
 ```
 
 The MAC unit performs signed multiply-accumulate operations inside each
@@ -55,12 +58,12 @@ shown separately from operand and result data paths.
 
 ```mermaid
 flowchart LR
-    A[A input] --> AR[A register]
+    A[A input] --> MAC[MAC unit]
+    B[B input] --> MAC
+    A --> AR[A register]
     AR -->|eastward A propagation| AE[A output]
-    AR --> MAC[MAC unit]
-    B[B input] --> BR[B register]
+    B --> BR[B register]
     BR -->|southward B propagation| BS[B output]
-    BR --> MAC
     MAC --> ACC[Accumulator register]
 
     CLK[Clock] --> AR
@@ -185,8 +188,9 @@ valid result or at an invalid address do not assert `read_valid`.
 └── build
 ```
 
-`build/` is reserved for generated simulation executables, logs, and
-waveforms. These generated files are ignored by Git.
+`build/` is created by the Makefile for generated simulation executables,
+logs, and waveforms. Its generated contents are ignored by Git; an empty
+`build/` directory is not tracked in a fresh clone.
 
 ## Requirements
 
