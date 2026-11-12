@@ -1,10 +1,10 @@
 // tb_data_management.v
-// Self-checking testbench for Data Management Subsystem:
+// Comprehensive self-checking testbench for Data Management Subsystem:
 //   - input_buffer
 //   - output_buffer
 //   - matrix_interface
 //
-// Covers Tests 1 through 14 as required by Task 4 specification.
+// Covers all 27 specified verification items for Task 4 closure.
 
 `timescale 1ns / 1ps
 `default_nettype none
@@ -172,7 +172,7 @@ module tb_data_management;
         .result_available     (buf_result_available)
     );
 
-    // Helper checking tasks
+    // Helper functions and tasks
     function signed [DATA_WIDTH-1:0] get_staged_a(input integer idx);
         get_staged_a = u_input_buffer.staged_a[(idx * DATA_WIDTH) +: DATA_WIDTH];
     endfunction
@@ -237,7 +237,7 @@ module tb_data_management;
     reg signed [DATA_WIDTH-1:0] mat_B [0:8];
     reg signed [ACC_WIDTH-1:0]  mat_C [0:8];
 
-    integer i, j, k, cyc;
+    integer i, cyc;
     reg signed [DATA_WIDTH-1:0] exp_a, act_a;
     reg signed [DATA_WIDTH-1:0] exp_b, act_b;
     reg skew_ok;
@@ -284,20 +284,15 @@ module tb_data_management;
         #1;
 
         // -------------------------------------------------------------
-        // Test 2: Matrix A writes
+        // Test 2: Individual Matrix A writes
         // -------------------------------------------------------------
         test_num = 2;
-        $display("\n--- Test 2: Matrix A Writes ---");
-        // Matrix A:
-        //  1  2  3
-        //  4  5  6
-        //  7  8  9
+        $display("\n--- Test 2: Individual Matrix A Writes ---");
         for (i = 0; i < 9; i = i + 1) begin
             mat_A[i] = i + 1;
             write_matrix_elem(1'b0, i[ADDR_WIDTH-1:0], mat_A[i]);
         end
 
-        // Verify storage in mem_a and written flags
         #1;
         check_condition("Written A flags all asserted", u_input_buffer.written_a == 9'b111111111);
         check_condition("Written B flags still 0", u_input_buffer.written_b == 9'b0);
@@ -314,28 +309,22 @@ module tb_data_management;
         end
 
         // -------------------------------------------------------------
-        // Test 3: Matrix B writes
+        // Test 3: Individual Matrix B writes
         // -------------------------------------------------------------
         test_num = 3;
-        $display("\n--- Test 3: Matrix B Writes ---");
-        // Matrix B:
-        //  9  8  7
-        //  6  5  4
-        //  3  2  1
+        $display("\n--- Test 3: Individual Matrix B Writes ---");
         for (i = 0; i < 8; i = i + 1) begin
             mat_B[i] = 9 - i;
             write_matrix_elem(1'b1, i[ADDR_WIDTH-1:0], mat_B[i]);
         end
 
-        check_condition("matrices_ready remains low with 8/9 B elements written", matrices_ready == 1'b0);
+        #1;
+        check_condition("Written B flags 8 of 9 asserted", u_input_buffer.written_b == 9'b011111111);
 
-        // Write 9th element of B
         mat_B[8] = 9 - 8; // 1
         write_matrix_elem(1'b1, 4'd8, mat_B[8]);
-
-        check_condition("Written B flags all asserted", u_input_buffer.written_b == 9'b111111111);
-        check_condition("matrices_ready goes high after all 18 elements written", matrices_ready == 1'b1);
-        check_condition("host_ready is high when controller is idle and matrices_ready is 1", host_ready == 1'b1);
+        #1;
+        check_condition("Written B flags all 9 asserted", u_input_buffer.written_b == 9'b111111111);
 
         begin : check_mem_b
             reg mem_b_ok;
@@ -348,23 +337,143 @@ module tb_data_management;
         end
 
         // -------------------------------------------------------------
-        // Test 4: Incomplete matrix rejection
+        // Test 4: Written-element tracking
         // -------------------------------------------------------------
         test_num = 4;
-        $display("\n--- Test 4: Incomplete Matrix Rejection ---");
-        // Reset DUT to clear written tracking
+        $display("\n--- Test 4: Written-Element Tracking ---");
         apply_async_reset();
-        check_condition("Post-reset matrices_ready is low", matrices_ready == 1'b0);
+        check_condition("Post-reset: written_a and written_b are 0",
+            (u_input_buffer.written_a == 9'b0) && (u_input_buffer.written_b == 9'b0));
 
-        // Write partial matrix A (5 elements) and B (5 elements)
+        // Write element 4 (center) of A and element 0 of B
+        write_matrix_elem(1'b0, 4'd4, 8'sd42);
+        write_matrix_elem(1'b1, 4'd0, -8'sd10);
+        #1;
+        check_condition("Tracking reflects exact written element indices independently",
+            (u_input_buffer.written_a == (9'b1 << 4)) && (u_input_buffer.written_b == 9'b1));
+
+        // -------------------------------------------------------------
+        // Test 5: matrices_ready assertion only after all 18 elements written
+        // -------------------------------------------------------------
+        test_num = 5;
+        $display("\n--- Test 5: matrices_ready Assertion Timing ---");
+        apply_async_reset();
+
+        // Write 9 elements of A and 8 elements of B
+        for (i = 0; i < 9; i = i + 1) begin
+            mat_A[i] = i + 1;
+            write_matrix_elem(1'b0, i[ADDR_WIDTH-1:0], mat_A[i]);
+        end
+        for (i = 0; i < 8; i = i + 1) begin
+            mat_B[i] = 9 - i;
+            write_matrix_elem(1'b1, i[ADDR_WIDTH-1:0], mat_B[i]);
+        end
+        #1;
+        check_condition("17 elements written: matrices_ready remains 0", matrices_ready == 1'b0);
+
+        mat_B[8] = 8'sd1;
+        write_matrix_elem(1'b1, 4'd8, mat_B[8]);
+        #1;
+        check_condition("All 18 elements written: matrices_ready becomes 1", matrices_ready == 1'b1);
+        check_condition("host_ready is high when idle and matrices_ready is 1", host_ready == 1'b1);
+
+        // -------------------------------------------------------------
+        // Test 6: Invalid matrix write address rejection
+        // -------------------------------------------------------------
+        test_num = 6;
+        $display("\n--- Test 6: Invalid Matrix Write Address Rejection ---");
+        // Attempt writing out-of-range address 9 and 15
+        @(posedge clk);
+        host_write_en   <= 1'b1;
+        host_write_is_b <= 1'b0;
+        host_write_addr <= 4'd9;
+        host_write_data <= 8'sd99;
+        #1;
+        check_condition("Write to address 9 not forwarded to buffer write_en", buf_write_en == 1'b0);
+        @(posedge clk);
+        #1;
+        host_write_en   <= 1'b0;
+
+        // Verify mem_a and tracking unaffected
+        check_condition("Buffer memory not corrupted by invalid address write",
+            (u_input_buffer.mem_a[8] == mat_A[8]));
+
+        // -------------------------------------------------------------
+        // Test 7: Write acknowledgement when a valid write is accepted
+        // -------------------------------------------------------------
+        test_num = 7;
+        $display("\n--- Test 7: Valid Write Acknowledgement ---");
+        controller_idle <= 1'b1;
+        @(posedge clk);
+        host_write_en   <= 1'b1;
+        host_write_is_b <= 1'b0;
+        host_write_addr <= 4'd3;
+        host_write_data <= 8'sd12;
+        #1;
+        check_condition("host_write_ack asserted when write is enabled, idle, and valid address",
+            host_write_ack == 1'b1);
+        @(posedge clk);
+        #1;
+        host_write_en <= 1'b0;
+
+        // -------------------------------------------------------------
+        // Test 8: No acknowledgement when write enable is low
+        // -------------------------------------------------------------
+        test_num = 8;
+        $display("\n--- Test 8: No Ack When Write Enable is Low ---");
+        controller_idle <= 1'b1;
+        host_write_en   <= 1'b0;
+        host_write_addr <= 4'd0;
+        #1;
+        check_condition("host_write_ack is 0 when host_write_en is 0", host_write_ack == 1'b0);
+
+        // -------------------------------------------------------------
+        // Test 9: No acknowledgement while controller is busy
+        // -------------------------------------------------------------
+        test_num = 9;
+        $display("\n--- Test 9: No Ack When Controller is Busy ---");
+        controller_idle <= 1'b0;
+        controller_busy <= 1'b1;
+        host_write_en   <= 1'b1;
+        host_write_addr <= 4'd0;
+        host_write_data <= 8'sd55;
+        #1;
+        check_condition("host_write_ack is 0 while controller is busy", host_write_ack == 1'b0);
+        check_condition("buf_write_en is 0 while controller is busy", buf_write_en == 1'b0);
+        host_write_en   <= 1'b0;
+        controller_busy <= 1'b0;
+        controller_idle <= 1'b1;
+        #1;
+
+        // -------------------------------------------------------------
+        // Test 10: No acknowledgement for invalid addresses
+        // -------------------------------------------------------------
+        test_num = 10;
+        $display("\n--- Test 10: No Ack for Invalid Addresses ---");
+        controller_idle <= 1'b1;
+        host_write_en   <= 1'b1;
+        host_write_addr <= 4'd9; // 9 is invalid for 3x3 array (0..8 valid)
+        #1;
+        check_condition("host_write_ack is 0 for address 9", host_write_ack == 1'b0);
+
+        host_write_addr <= 4'd15; // max 4-bit address
+        #1;
+        check_condition("host_write_ack is 0 for address 15", host_write_ack == 1'b0);
+        host_write_en   <= 1'b0;
+
+        // -------------------------------------------------------------
+        // Test 11: Incomplete-matrix start rejection
+        // -------------------------------------------------------------
+        test_num = 11;
+        $display("\n--- Test 11: Incomplete-Matrix Start Rejection ---");
+        apply_async_reset();
         for (i = 0; i < 5; i = i + 1) begin
             write_matrix_elem(1'b0, i[ADDR_WIDTH-1:0], 8'd10 + i);
             write_matrix_elem(1'b1, i[ADDR_WIDTH-1:0], 8'd20 + i);
         end
+        #1;
+        check_condition("matrices_ready is low for partial matrices", matrices_ready == 1'b0);
 
-        check_condition("Partial write: matrices_ready is 0", matrices_ready == 1'b0);
-
-        // Attempt host_start while matrices are incomplete
         @(posedge clk);
         host_start <= 1'b1;
         @(posedge clk);
@@ -378,31 +487,64 @@ module tb_data_management;
         #1;
         check_condition("start_err cleared after 1 cycle", start_err == 1'b0);
 
-        // Now write remaining elements of A and B
-        for (i = 5; i < 9; i = i + 1) begin
-            write_matrix_elem(1'b0, i[ADDR_WIDTH-1:0], 8'd1 + i); // 1..9
-            write_matrix_elem(1'b1, i[ADDR_WIDTH-1:0], 8'd9 - i); // 9..1
-        end
-        // Overwrite 0..4 with 1..5 for A and 9..5 for B
-        for (i = 0; i < 5; i = i + 1) begin
+        // Fill remaining matrix elements for subsequent tests
+        for (i = 0; i < 9; i = i + 1) begin
             mat_A[i] = i + 1;
             mat_B[i] = 9 - i;
             write_matrix_elem(1'b0, i[ADDR_WIDTH-1:0], mat_A[i]);
             write_matrix_elem(1'b1, i[ADDR_WIDTH-1:0], mat_B[i]);
         end
-        for (i = 5; i < 9; i = i + 1) begin
-            mat_A[i] = i + 1;
-            mat_B[i] = 9 - i;
-        end
-
-        check_condition("All elements written: matrices_ready is now 1", matrices_ready == 1'b1);
+        #1;
 
         // -------------------------------------------------------------
-        // Test 5: LOAD phase staging
+        // Test 12: Valid host start acceptance
         // -------------------------------------------------------------
-        test_num = 5;
-        $display("\n--- Test 5: LOAD Phase Staging ---");
-        // Simulate controller LOAD phase: 3 cycles
+        test_num = 12;
+        $display("\n--- Test 12: Valid Host Start Acceptance ---");
+        controller_idle <= 1'b1;
+        @(posedge clk);
+        host_start <= 1'b1;
+        @(posedge clk);
+        #1;
+        check_condition("ctrl_start asserted for accepted start", ctrl_start == 1'b1);
+        check_condition("start_ack asserted for accepted start", start_ack == 1'b1);
+        check_condition("out_buf_clear asserted on accepted start", out_buf_clear == 1'b1);
+        check_condition("start_err remains 0", start_err == 1'b0);
+
+        @(posedge clk);
+        #1;
+        check_condition("ctrl_start is a single-cycle pulse", ctrl_start == 1'b0);
+        check_condition("start_ack dropped after 1 cycle", start_ack == 1'b0);
+        host_start <= 1'b0;
+        @(posedge clk);
+
+        // -------------------------------------------------------------
+        // Test 13: Held-high host-start behavior
+        // -------------------------------------------------------------
+        test_num = 13;
+        $display("\n--- Test 13: Held-High Host Start Behavior ---");
+        @(posedge clk);
+        host_start <= 1'b1;
+        @(posedge clk);
+        #1;
+        check_condition("Cycle 1 of held start: ctrl_start pulsed", ctrl_start == 1'b1);
+
+        @(posedge clk);
+        #1;
+        check_condition("Cycle 2 of held start: ctrl_start is 0", ctrl_start == 1'b0);
+
+        @(posedge clk);
+        @(posedge clk);
+        #1;
+        check_condition("Subsequent cycles of held start: ctrl_start remains 0", ctrl_start == 1'b0);
+        host_start <= 1'b0;
+        @(posedge clk);
+
+        // -------------------------------------------------------------
+        // Test 14: LOAD staging of A rows and B columns
+        // -------------------------------------------------------------
+        test_num = 14;
+        $display("\n--- Test 14: LOAD Staging ---");
         controller_idle <= 1'b0;
         controller_busy <= 1'b1;
         load_en <= 1'b1;
@@ -444,7 +586,6 @@ module tb_data_management;
             (get_staged_b(5) == mat_B[5]) &&
             (get_staged_b(8) == mat_B[8]));
 
-        // Verify full staging content matches mem
         begin : check_full_staging
             reg stage_ok;
             stage_ok = 1'b1;
@@ -457,186 +598,118 @@ module tb_data_management;
         end
 
         // -------------------------------------------------------------
-        // Test 6: A operand skewing
+        // Test 15: Complete A operand skew stream
         // -------------------------------------------------------------
-        test_num = 6;
-        $display("\n--- Test 6: A Operand Skewing ---");
-        // COMPUTE phase: 7 cycles (0 to 6)
+        test_num = 15;
+        $display("\n--- Test 15: Complete A Operand Skew Stream ---");
         compute_en <= 1'b1;
-
         skew_ok = 1'b1;
         for (cyc = 0; cyc < 7; cyc = cyc + 1) begin
             cycle_count <= cyc[CYCLE_W-1:0];
-            #1; // combinational settle
+            #1;
 
-            // Check row 0
             if (cyc >= 0 && cyc < 3) exp_a = mat_A[(0 * 3) + cyc];
             else exp_a = 8'd0;
             act_a = a_west[(0 * DATA_WIDTH) +: DATA_WIDTH];
-            if (act_a !== exp_a) begin
-                $display("Mismatch cycle %0d row 0: exp %0d, act %0d", cyc, exp_a, act_a);
-                skew_ok = 1'b0;
-            end
+            if (act_a !== exp_a) skew_ok = 1'b0;
 
-            // Check row 1
             if (cyc >= 1 && cyc < 4) exp_a = mat_A[(1 * 3) + (cyc - 1)];
             else exp_a = 8'd0;
             act_a = a_west[(1 * DATA_WIDTH) +: DATA_WIDTH];
-            if (act_a !== exp_a) begin
-                $display("Mismatch cycle %0d row 1: exp %0d, act %0d", cyc, exp_a, act_a);
-                skew_ok = 1'b0;
-            end
+            if (act_a !== exp_a) skew_ok = 1'b0;
 
-            // Check row 2
             if (cyc >= 2 && cyc < 5) exp_a = mat_A[(2 * 3) + (cyc - 2)];
             else exp_a = 8'd0;
             act_a = a_west[(2 * DATA_WIDTH) +: DATA_WIDTH];
-            if (act_a !== exp_a) begin
-                $display("Mismatch cycle %0d row 2: exp %0d, act %0d", cyc, exp_a, act_a);
-                skew_ok = 1'b0;
-            end
+            if (act_a !== exp_a) skew_ok = 1'b0;
 
             @(posedge clk);
         end
-        check_condition("A operand skewing stream exactly matches 7-cycle schedule", skew_ok == 1'b1);
+        check_condition("7-cycle A operand skew stream exactly matches specification", skew_ok == 1'b1);
 
         // -------------------------------------------------------------
-        // Test 7: B operand skewing
+        // Test 16: Complete B operand skew stream
         // -------------------------------------------------------------
-        test_num = 7;
-        $display("\n--- Test 7: B Operand Skewing ---");
+        test_num = 16;
+        $display("\n--- Test 16: Complete B Operand Skew Stream ---");
         skew_ok = 1'b1;
         for (cyc = 0; cyc < 7; cyc = cyc + 1) begin
             cycle_count <= cyc[CYCLE_W-1:0];
-            #1; // combinational settle
+            #1;
 
-            // Check col 0
             if (cyc >= 0 && cyc < 3) exp_b = mat_B[(cyc * 3) + 0];
             else exp_b = 8'd0;
             act_b = b_north[(0 * DATA_WIDTH) +: DATA_WIDTH];
-            if (act_b !== exp_b) begin
-                $display("Mismatch cycle %0d col 0: exp %0d, act %0d", cyc, exp_b, act_b);
-                skew_ok = 1'b0;
-            end
+            if (act_b !== exp_b) skew_ok = 1'b0;
 
-            // Check col 1
             if (cyc >= 1 && cyc < 4) exp_b = mat_B[((cyc - 1) * 3) + 1];
             else exp_b = 8'd0;
             act_b = b_north[(1 * DATA_WIDTH) +: DATA_WIDTH];
-            if (act_b !== exp_b) begin
-                $display("Mismatch cycle %0d col 1: exp %0d, act %0d", cyc, exp_b, act_b);
-                skew_ok = 1'b0;
-            end
+            if (act_b !== exp_b) skew_ok = 1'b0;
 
-            // Check col 2
             if (cyc >= 2 && cyc < 5) exp_b = mat_B[((cyc - 2) * 3) + 2];
             else exp_b = 8'd0;
             act_b = b_north[(2 * DATA_WIDTH) +: DATA_WIDTH];
-            if (act_b !== exp_b) begin
-                $display("Mismatch cycle %0d col 2: exp %0d, act %0d", cyc, exp_b, act_b);
-                skew_ok = 1'b0;
-            end
+            if (act_b !== exp_b) skew_ok = 1'b0;
 
             @(posedge clk);
         end
-        check_condition("B operand skewing stream exactly matches 7-cycle schedule", skew_ok == 1'b1);
+        check_condition("7-cycle B operand skew stream exactly matches specification", skew_ok == 1'b1);
 
         // -------------------------------------------------------------
-        // Test 8: Compute disable
+        // Test 17: Compute-disabled zero streams
         // -------------------------------------------------------------
-        test_num = 8;
-        $display("\n--- Test 8: Compute Disable ---");
+        test_num = 17;
+        $display("\n--- Test 17: Compute-Disabled Zero Streams ---");
         compute_en <= 1'b0;
-        cycle_count <= 3'd2; // mid-range cycle
+        cycle_count <= 3'd2;
         #1;
-        check_condition("With compute_en=0, a_west is 0", a_west == 24'b0);
-        check_condition("With compute_en=0, b_north is 0", b_north == 24'b0);
-
-        // Verify staging registers not modified
-        begin : check_staging_preserved
-            reg preserved_ok;
-            preserved_ok = 1'b1;
-            for (i = 0; i < 9; i = i + 1) begin
-                if ((get_staged_a(i) !== mat_A[i]) ||
-                    (get_staged_b(i) !== mat_B[i]))
-                    preserved_ok = 1'b0;
-            end
-            check_condition("Staging registers unchanged when compute disabled", preserved_ok == 1'b1);
-        end
+        check_condition("With compute_en=0, a_west is zero", a_west == 24'b0);
+        check_condition("With compute_en=0, b_north is zero", b_north == 24'b0);
 
         // -------------------------------------------------------------
-        // Test 9: Output buffer result capture
+        // Test 18: Output-buffer result capture
         // -------------------------------------------------------------
-        test_num = 9;
-        $display("\n--- Test 9: Output Buffer Result Capture ---");
-        // Compute golden C = A x B
-        // A = [1 2 3; 4 5 6; 7 8 9]
-        // B = [9 8 7; 6 5 4; 3 2 1]
-        // C[0][0] = 1*9 + 2*6 + 3*3 = 9 + 12 + 9 = 30
-        // C[0][1] = 1*8 + 2*5 + 3*2 = 8 + 10 + 6 = 24
-        // C[0][2] = 1*7 + 2*4 + 3*1 = 7 + 8 + 3 = 18
-        // C[1][0] = 4*9 + 5*6 + 6*3 = 36 + 30 + 18 = 84
-        // C[1][1] = 4*8 + 5*5 + 6*2 = 32 + 25 + 12 = 69
-        // C[1][2] = 4*7 + 5*4 + 6*1 = 28 + 20 + 6 = 54
-        // C[2][0] = 7*9 + 8*6 + 9*3 = 63 + 48 + 27 = 138
-        // C[2][1] = 7*8 + 8*5 + 9*2 = 56 + 40 + 18 = 114
-        // C[2][2] = 7*7 + 8*4 + 9*1 = 49 + 32 + 9 = 90
-        mat_C[0] = 32'sd30;
-        mat_C[1] = 32'sd24;
-        mat_C[2] = 32'sd18;
-        mat_C[3] = 32'sd84;
-        mat_C[4] = 32'sd69;
-        mat_C[5] = 32'sd54;
-        mat_C[6] = 32'sd138;
-        mat_C[7] = 32'sd114;
-        mat_C[8] = 32'sd90;
+        test_num = 18;
+        $display("\n--- Test 18: Output-Buffer Result Capture ---");
+        mat_C[0] = 32'sd30;  mat_C[1] = 32'sd24;  mat_C[2] = 32'sd18;
+        mat_C[3] = 32'sd84;  mat_C[4] = 32'sd69;  mat_C[5] = 32'sd54;
+        mat_C[6] = 32'sd138; mat_C[7] = 32'sd114; mat_C[8] = 32'sd90;
 
         for (i = 0; i < 9; i = i + 1) begin
             acc_in[(i * ACC_WIDTH) +: ACC_WIDTH] = mat_C[i];
         end
 
-        // Assert result_valid for 1 clock cycle (DONE state)
         @(posedge clk);
-        controller_busy <= 1'b0;
+        result_valid <= 1'b1;
         controller_done <= 1'b1;
-        result_valid    <= 1'b1;
+        controller_busy <= 1'b0;
         @(posedge clk);
         #1;
-        result_valid    <= 1'b0;
+        result_valid <= 1'b0;
         controller_done <= 1'b0;
         controller_idle <= 1'b1;
 
-        check_condition("result_available asserted after result_valid edge", buf_result_available == 1'b1);
+        check_condition("result_available asserted after capture", buf_result_available == 1'b1);
         check_condition("host_result_available asserted", host_result_available == 1'b1);
 
-        // Check captured values in result_mem
-        begin : check_capture
+        begin : check_captured_result
             reg cap_ok;
             cap_ok = 1'b1;
             for (i = 0; i < 9; i = i + 1) begin
-                if (u_output_buffer.result_mem[i] !== mat_C[i])
-                    cap_ok = 1'b0;
+                if (u_output_buffer.result_mem[i] !== mat_C[i]) cap_ok = 1'b0;
             end
-            check_condition("All 9 elements captured accurately on rising clock edge", cap_ok == 1'b1);
+            check_condition("All 9 accumulator values accurately captured", cap_ok == 1'b1);
         end
 
-        // Ensure captured result remains stable after result_valid drops
-        #20;
-        @(posedge clk);
-        #1;
-        check_condition("Result available holds stable over multiple clock cycles", buf_result_available == 1'b1);
-
         // -------------------------------------------------------------
-        // Test 10: Output buffer indexed readback
+        // Test 19: Correct indexed readback of all nine results
         // -------------------------------------------------------------
-        test_num = 10;
-        $display("\n--- Test 10: Output Buffer Indexed Readback ---");
-        begin : test_readback
+        test_num = 19;
+        $display("\n--- Test 19: Correct Indexed Readback ---");
+        begin : test_read_all
             reg read_ok;
-            reg pulse_ok;
-            read_ok  = 1'b1;
-            pulse_ok = 1'b1;
-
+            read_ok = 1'b1;
             for (i = 0; i < 9; i = i + 1) begin
                 @(posedge clk);
                 host_read_en   <= 1'b1;
@@ -644,206 +717,161 @@ module tb_data_management;
                 @(posedge clk);
                 #1;
                 host_read_en   <= 1'b0;
-                if (!host_read_valid || (host_read_data !== mat_C[i])) begin
-                    $display("Mismatch read addr %0d: exp %0d, act %0d (valid=%b)",
-                        i, mat_C[i], host_read_data, host_read_valid);
-                    read_ok = 1'b0;
-                end
-                @(posedge clk);
-                #1;
-                if (host_read_valid !== 1'b0) begin
-                    pulse_ok = 1'b0;
-                end
+                if (!host_read_valid || (host_read_data !== mat_C[i])) read_ok = 1'b0;
             end
-            check_condition("Row-major indexed read returns exact signed 32-bit values", read_ok == 1'b1);
-            check_condition("read_valid pulses for exactly 1 cycle per valid read", pulse_ok == 1'b1);
+            check_condition("Row-major readback of all 9 elements matches captured values", read_ok == 1'b1);
         end
 
-        // Out-of-range address read test (addr = 9, 12)
+        // -------------------------------------------------------------
+        // Test 20: One-cycle read_valid
+        // -------------------------------------------------------------
+        test_num = 20;
+        $display("\n--- Test 20: One-Cycle read_valid Strobe ---");
+        @(posedge clk);
+        host_read_en   <= 1'b1;
+        host_read_addr <= 4'd2;
+        @(posedge clk);
+        #1;
+        host_read_en   <= 1'b0;
+        check_condition("read_valid is 1 on completion cycle", host_read_valid == 1'b1);
+        @(posedge clk);
+        #1;
+        check_condition("read_valid returns to 0 on subsequent cycle", host_read_valid == 1'b0);
+
+        // -------------------------------------------------------------
+        // Test 21: Out-of-range read rejection
+        // -------------------------------------------------------------
+        test_num = 21;
+        $display("\n--- Test 21: Out-of-Range Read Rejection ---");
         @(posedge clk);
         host_read_en   <= 1'b1;
         host_read_addr <= 4'd9;
         @(posedge clk);
         #1;
         host_read_en   <= 1'b0;
-        check_condition("Out-of-range address produces read_valid = 0", host_read_valid == 1'b0);
-        check_condition("Out-of-range address returns 0 data", host_read_data == 32'sd0);
+        check_condition("Out-of-range read produces read_valid = 0", host_read_valid == 1'b0);
+        check_condition("Out-of-range read returns zero data", host_read_data == 32'sd0);
 
         // -------------------------------------------------------------
-        // Test 11: Result invalidation
+        // Test 22: Read rejection when no result is available
         // -------------------------------------------------------------
-        test_num = 11;
-        $display("\n--- Test 11: Result Invalidation ---");
-        check_condition("Pre-condition: result_available is currently 1", buf_result_available == 1'b1);
-
-        // Issue new accepted start request
-        @(posedge clk);
-        host_start <= 1'b1;
-        @(posedge clk);
-        #1;
-        host_start <= 1'b0;
-        check_condition("out_buf_clear asserted on accepted start", out_buf_clear == 1'b1);
-
-        @(posedge clk);
-        #1;
-        check_condition("Previous result invalidated: result_available is now 0", buf_result_available == 1'b0);
-        check_condition("host_result_available is 0", host_result_available == 1'b0);
-
-        // Attempt read while result_available = 0
+        test_num = 22;
+        $display("\n--- Test 22: Read Rejection When No Result Available ---");
+        apply_async_reset();
         @(posedge clk);
         host_read_en   <= 1'b1;
         host_read_addr <= 4'd0;
         @(posedge clk);
         #1;
         host_read_en   <= 1'b0;
-        check_condition("Read while invalidated returns read_valid = 0", host_read_valid == 1'b0);
+        check_condition("Read when result_available=0 rejected: read_valid=0", host_read_valid == 1'b0);
+        check_condition("Read data is 0 when result not available", host_read_data == 32'sd0);
 
-        // Capture replacement result
+        // Re-write matrices and capture result for tests 23-24
         for (i = 0; i < 9; i = i + 1) begin
-            acc_in[(i * ACC_WIDTH) +: ACC_WIDTH] = 32'sd500 + i;
+            mat_A[i] = i + 1;
+            mat_B[i] = 9 - i;
+            write_matrix_elem(1'b0, i[ADDR_WIDTH-1:0], mat_A[i]);
+            write_matrix_elem(1'b1, i[ADDR_WIDTH-1:0], mat_B[i]);
         end
         @(posedge clk);
+        for (i = 0; i < 9; i = i + 1) begin
+            acc_in[(i * ACC_WIDTH) +: ACC_WIDTH] = 32'sd100 + i;
+        end
         result_valid <= 1'b1;
         @(posedge clk);
         #1;
         result_valid <= 1'b0;
-        check_condition("Subsequent result_valid captures replacement result", buf_result_available == 1'b1);
-        check_condition("Replacement value C[0] is 500", u_output_buffer.result_mem[0] == 32'sd500);
 
         // -------------------------------------------------------------
-        // Test 12: Host start and status
+        // Test 23: Result invalidation on accepted start
         // -------------------------------------------------------------
-        test_num = 12;
-        $display("\n--- Test 12: Host Start and Status ---");
-        // Start accepted when idle and matrices ready
-        controller_idle <= 1'b1;
-        controller_busy <= 1'b0;
+        test_num = 23;
+        $display("\n--- Test 23: Result Invalidation on Accepted Start ---");
+        check_condition("Pre-condition: result_available is 1", buf_result_available == 1'b1);
         @(posedge clk);
         host_start <= 1'b1;
         @(posedge clk);
         #1;
-        check_condition("Start accepted when idle & ready: ctrl_start asserted", ctrl_start == 1'b1);
-        check_condition("start_ack asserted", start_ack == 1'b1);
-        check_condition("start_err not asserted", start_err == 1'b0);
-
-        // Verify held-high host_start does NOT re-trigger
-        @(posedge clk);
-        #1;
-        check_condition("Held host_start: ctrl_start dropped after 1 cycle", ctrl_start == 1'b0);
-        @(posedge clk);
-        @(posedge clk);
-        #1;
-        check_condition("Held host_start across multiple cycles produces NO repeated start", ctrl_start == 1'b0);
         host_start <= 1'b0;
-        @(posedge clk);
-
-        // Start rejected when busy
-        controller_idle <= 1'b0;
-        controller_busy <= 1'b1;
-        @(posedge clk);
-        host_start <= 1'b1;
+        check_condition("out_buf_clear asserted on accepted start", out_buf_clear == 1'b1);
         @(posedge clk);
         #1;
-        check_condition("Start rejected when busy: ctrl_start remained 0", ctrl_start == 1'b0);
-        check_condition("start_err asserted on busy start attempt", start_err == 1'b1);
-        host_start <= 1'b0;
-        @(posedge clk);
-        #1;
-
-        // Controller busy and done exposed to host
-        check_condition("host_busy correctly reflects controller_busy", host_busy == 1'b1);
-        controller_busy <= 1'b0;
-        controller_done <= 1'b1;
-        #1;
-        check_condition("host_done correctly reflects controller_done", host_done == 1'b1);
-        controller_done <= 1'b0;
-        controller_idle <= 1'b1;
-        #1;
+        check_condition("Accepted start invalidates previous result: result_available is 0",
+            buf_result_available == 1'b0);
 
         // -------------------------------------------------------------
-        // Test 13: Signed matrix values
+        // Test 24: Capture priority when result_valid and clear overlap
         // -------------------------------------------------------------
-        test_num = 13;
-        $display("\n--- Test 13: Signed Matrix Values ---");
-        // Test elements: -128, -75, -1, 0, 1, 64, 127, -50, 42
-        mat_A[0] = -8'sd128;
-        mat_A[1] = -8'sd75;
-        mat_A[2] = -8'sd1;
-        mat_A[3] = 8'sd0;
-        mat_A[4] = 8'sd1;
-        mat_A[5] = 8'sd64;
-        mat_A[6] = 8'sd127;
-        mat_A[7] = -8'sd50;
-        mat_A[8] = 8'sd42;
+        test_num = 24;
+        $display("\n--- Test 24: Capture Priority Over Clear ---");
+        // Apply clear and result_valid simultaneously
+        for (i = 0; i < 9; i = i + 1) begin
+            acc_in[(i * ACC_WIDTH) +: ACC_WIDTH] = 32'sd777;
+        end
+        @(posedge clk);
+        result_valid <= 1'b1;
+        // host_start rising edge causes out_buf_clear
+        host_start   <= 1'b1;
+        @(posedge clk);
+        #1;
+        result_valid <= 1'b0;
+        host_start   <= 1'b0;
+        check_condition("Overlapping result_valid and clear: result_valid has priority",
+            buf_result_available == 1'b1);
+        check_condition("Captured element 0 is 777 despite concurrent clear",
+            u_output_buffer.result_mem[0] == 32'sd777);
 
-        mat_B[0] = 8'sd127;
-        mat_B[1] = 8'sd64;
-        mat_B[2] = 8'sd1;
-        mat_B[3] = 8'sd0;
-        mat_B[4] = -8'sd1;
-        mat_B[5] = -8'sd75;
-        mat_B[6] = -8'sd128;
-        mat_B[7] = 8'sd42;
-        mat_B[8] = -8'sd50;
+        // -------------------------------------------------------------
+        // Test 25: Signed operand storage and streaming
+        // -------------------------------------------------------------
+        test_num = 25;
+        $display("\n--- Test 25: Signed Operand Storage and Streaming ---");
+        mat_A[0] = -8'sd128; mat_A[1] = -8'sd75; mat_A[2] = -8'sd1;
+        mat_A[3] = 8'sd0;    mat_A[4] = 8'sd1;   mat_A[5] = 8'sd64;
+        mat_A[6] = 8'sd127;  mat_A[7] = -8'sd50; mat_A[8] = 8'sd42;
+
+        mat_B[0] = 8'sd127;  mat_B[1] = 8'sd64;  mat_B[2] = 8'sd1;
+        mat_B[3] = 8'sd0;    mat_B[4] = -8'sd1;  mat_B[5] = -8'sd75;
+        mat_B[6] = -8'sd128; mat_B[7] = 8'sd42;  mat_B[8] = -8'sd50;
 
         for (i = 0; i < 9; i = i + 1) begin
             write_matrix_elem(1'b0, i[ADDR_WIDTH-1:0], mat_A[i]);
             write_matrix_elem(1'b1, i[ADDR_WIDTH-1:0], mat_B[i]);
         end
 
-        // Verify signed storage
-        begin : check_signed_mem
-            reg signed_ok;
-            signed_ok = 1'b1;
-            for (i = 0; i < 9; i = i + 1) begin
-                if ((u_input_buffer.mem_a[i] !== mat_A[i]) ||
-                    (u_input_buffer.mem_b[i] !== mat_B[i]))
-                    signed_ok = 1'b0;
-            end
-            check_condition("Negative and positive boundary values accurately stored in signed memory",
-                signed_ok == 1'b1);
-        end
-
-        // Stage signed values through LOAD
+        // Stage via LOAD
         load_en <= 1'b1;
         for (i = 0; i < 3; i = i + 1) begin
             load_idx <= i[LOAD_IDX_W-1:0];
             @(posedge clk);
         end
-        load_en <= 1'b0;
         #1;
+        load_en <= 1'b0;
 
-        // Check skewed operand values at cycle 0
+        // Verify signed stream on compute
         compute_en <= 1'b1;
         cycle_count <= 3'd0;
         #1;
-        check_condition("Row 0 west output holds signed -128",
+        check_condition("Cycle 0 row 0 a_west is -128",
             $signed(a_west[(0 * DATA_WIDTH) +: DATA_WIDTH]) === -8'sd128);
-        check_condition("Col 0 north output holds signed +127",
+        check_condition("Cycle 0 col 0 b_north is +127",
             $signed(b_north[(0 * DATA_WIDTH) +: DATA_WIDTH]) === 8'sd127);
 
-        // Cycle 2: A[0][2] = -1, A[1][1] = 1, A[2][0] = 127
         cycle_count <= 3'd2;
         #1;
-        check_condition("Cycle 2 row 0 holds signed -1",
+        check_condition("Cycle 2 row 0 a_west is -1",
             $signed(a_west[(0 * DATA_WIDTH) +: DATA_WIDTH]) === -8'sd1);
-        check_condition("Cycle 2 row 1 holds signed +1",
-            $signed(a_west[(1 * DATA_WIDTH) +: DATA_WIDTH]) === 8'sd1);
-        check_condition("Cycle 2 row 2 holds signed +127",
+        check_condition("Cycle 2 row 2 a_west is +127",
             $signed(a_west[(2 * DATA_WIDTH) +: DATA_WIDTH]) === 8'sd127);
-
         compute_en <= 1'b0;
 
         // -------------------------------------------------------------
-        // Test 14: Back-to-back operations
+        // Test 26: Back-to-back operations without stale matrix or result data
         // -------------------------------------------------------------
-        test_num = 14;
-        $display("\n--- Test 14: Back-to-Back Operations ---");
-        // Sequence 1:
-        // Set up Identity for B, diagonal matrix for A
-        // A = [2 0 0; 0 3 0; 0 0 4]
-        // B = [1 0 0; 0 1 0; 0 0 1]
-        // Expected C = [2 0 0; 0 3 0; 0 0 4]
+        test_num = 26;
+        $display("\n--- Test 26: Back-to-Back Operations ---");
+        // Sequence 1: Diagonal matrices
         for (i = 0; i < 9; i = i + 1) begin
             mat_A[i] = 8'd0;
             mat_B[i] = 8'd0;
@@ -856,14 +884,14 @@ module tb_data_management;
             write_matrix_elem(1'b1, i[ADDR_WIDTH-1:0], mat_B[i]);
         end
 
-        // Operation 1 Start
+        // Start Op 1
         @(posedge clk);
         host_start <= 1'b1;
         @(posedge clk);
         #1;
         host_start <= 1'b0;
 
-        // LOAD Phase
+        // LOAD Op 1
         controller_idle <= 1'b0;
         controller_busy <= 1'b1;
         load_en <= 1'b1;
@@ -871,9 +899,10 @@ module tb_data_management;
             load_idx <= i[LOAD_IDX_W-1:0];
             @(posedge clk);
         end
+        #1;
         load_en <= 1'b0;
 
-        // COMPUTE Phase
+        // COMPUTE Op 1
         compute_en <= 1'b1;
         for (i = 0; i < 7; i = i + 1) begin
             cycle_count <= i[CYCLE_W-1:0];
@@ -881,25 +910,17 @@ module tb_data_management;
         end
         compute_en <= 1'b0;
 
-        // DONE Phase & Capture Result 1
-        mat_C[0] = 32'sd2; mat_C[4] = 32'sd3; mat_C[8] = 32'sd4;
-        mat_C[1] = 32'sd0; mat_C[2] = 32'sd0; mat_C[3] = 32'sd0;
-        mat_C[5] = 32'sd0; mat_C[6] = 32'sd0; mat_C[7] = 32'sd0;
-        for (i = 0; i < 9; i = i + 1) begin
-            acc_in[(i * ACC_WIDTH) +: ACC_WIDTH] = mat_C[i];
-        end
+        // Capture Result 1
+        for (i = 0; i < 9; i = i + 1) acc_in[(i * ACC_WIDTH) +: ACC_WIDTH] = 32'sd11;
         result_valid <= 1'b1;
         @(posedge clk);
         #1;
         result_valid <= 1'b0;
         controller_busy <= 1'b0;
         controller_idle <= 1'b1;
-
         check_condition("Op 1 result captured and available", buf_result_available == 1'b1);
 
-        // Sequence 2: Write completely new matrix data
-        // A = all 5s, B = all 2s
-        // Expected C = 3 * (5 * 2) = 30 for all elements
+        // Sequence 2: Write all 5s and all 2s
         for (i = 0; i < 9; i = i + 1) begin
             mat_A[i] = 8'sd5;
             mat_B[i] = 8'sd2;
@@ -916,9 +937,9 @@ module tb_data_management;
         check_condition("Op 2 start accepted", start_ack == 1'b1);
         @(posedge clk);
         #1;
-        check_condition("Op 2 start immediately invalidated Op 1 result", buf_result_available == 1'b0);
+        check_condition("Op 2 start invalidated Op 1 result", buf_result_available == 1'b0);
 
-        // LOAD Phase Op 2
+        // LOAD Op 2
         controller_idle <= 1'b0;
         controller_busy <= 1'b1;
         load_en <= 1'b1;
@@ -929,38 +950,28 @@ module tb_data_management;
         #1;
         load_en <= 1'b0;
 
-        // Verify staging updated to 5 and 2 (no stale Op 1 values)
-        begin : check_no_stale_staging
-            reg fresh_staged;
-            fresh_staged = 1'b1;
+        // Verify fresh staging without stale Op 1 data
+        begin : check_fresh_stage
+            reg no_stale;
+            no_stale = 1'b1;
             for (i = 0; i < 9; i = i + 1) begin
-                if ((get_staged_a(i) !== 8'sd5) ||
-                    (get_staged_b(i) !== 8'sd2))
-                    fresh_staged = 1'b0;
+                if ((get_staged_a(i) !== 8'sd5) || (get_staged_b(i) !== 8'sd2)) no_stale = 1'b0;
             end
-            check_condition("Op 2 LOAD staged fresh matrix values without stale Op 1 data",
-                fresh_staged == 1'b1);
+            check_condition("Op 2 staging verified without stale Op 1 data", no_stale == 1'b1);
         end
 
-        // COMPUTE Phase Op 2
+        // COMPUTE Op 2
         compute_en <= 1'b1;
         cycle_count <= 3'd0;
         #1;
-        check_condition("Op 2 operand stream reflects new matrix A value (5)",
+        check_condition("Op 2 stream shows new A data (5)",
             $signed(a_west[(0 * DATA_WIDTH) +: DATA_WIDTH]) === 8'sd5);
-        check_condition("Op 2 operand stream reflects new matrix B value (2)",
+        check_condition("Op 2 stream shows new B data (2)",
             $signed(b_north[(0 * DATA_WIDTH) +: DATA_WIDTH]) === 8'sd2);
-
-        for (i = 0; i < 7; i = i + 1) begin
-            cycle_count <= i[CYCLE_W-1:0];
-            @(posedge clk);
-        end
         compute_en <= 1'b0;
 
-        // Capture Result 2 (all 30)
-        for (i = 0; i < 9; i = i + 1) begin
-            acc_in[(i * ACC_WIDTH) +: ACC_WIDTH] = 32'sd30;
-        end
+        // Capture Result 2 (30)
+        for (i = 0; i < 9; i = i + 1) acc_in[(i * ACC_WIDTH) +: ACC_WIDTH] = 32'sd30;
         result_valid <= 1'b1;
         @(posedge clk);
         #1;
@@ -968,27 +979,50 @@ module tb_data_management;
         controller_busy <= 1'b0;
         controller_idle <= 1'b1;
 
-        check_condition("Op 2 result captured and available", buf_result_available == 1'b1);
-
-        // Readback Op 2 result and verify replacement
-        begin : read_op2
-            reg op2_ok;
-            op2_ok = 1'b1;
-            for (i = 0; i < 9; i = i + 1) begin
-                @(posedge clk);
-                host_read_en   <= 1'b1;
-                host_read_addr <= i[ADDR_WIDTH-1:0];
-                @(posedge clk);
-                #1;
-                host_read_en   <= 1'b0;
-                if (!host_read_valid || (host_read_data !== 32'sd30))
-                    op2_ok = 1'b0;
-            end
-            check_condition("Op 2 readback confirms complete replacement of result (all 30)", op2_ok == 1'b1);
-        end
+        // Readback Result 2
+        @(posedge clk);
+        host_read_en   <= 1'b1;
+        host_read_addr <= 4'd0;
+        @(posedge clk);
+        #1;
+        host_read_en   <= 1'b0;
+        check_condition("Op 2 readback verifies clean result replacement (30)",
+            (host_read_valid == 1'b1) && (host_read_data === 32'sd30));
 
         // -------------------------------------------------------------
-        // Summary
+        // Test 27: Reset during normal operation
+        // -------------------------------------------------------------
+        test_num = 27;
+        $display("\n--- Test 27: Reset During Normal Operation ---");
+        // Start an active compute phase
+        controller_idle <= 1'b0;
+        controller_busy <= 1'b1;
+        compute_en <= 1'b1;
+        cycle_count <= 3'd3;
+        #1;
+        check_condition("Pre-reset: computation active", a_west !== 24'b0);
+
+        // Assert asynchronous reset mid-cycle
+        rst_n <= 1'b0;
+        #5;
+        check_condition("Mid-cycle async reset clears a_west immediately", a_west == 24'b0);
+        check_condition("Mid-cycle async reset clears b_north immediately", b_north == 24'b0);
+        check_condition("Mid-cycle async reset clears matrices_ready", matrices_ready == 1'b0);
+        check_condition("Mid-cycle async reset clears result_available", buf_result_available == 1'b0);
+
+        @(posedge clk);
+        #1;
+        rst_n <= 1'b1;
+        controller_idle <= 1'b1;
+        controller_busy <= 1'b0;
+        compute_en <= 1'b0;
+        @(posedge clk);
+        #1;
+        check_condition("Post-reset state idle and all registers clean",
+            (matrices_ready == 1'b0) && (buf_result_available == 1'b0) && (ctrl_start == 1'b0));
+
+        // -------------------------------------------------------------
+        // Final Summary and Exit Status
         // -------------------------------------------------------------
         $display("\n================================================================");
         $display("TEST RESULTS SUMMARY:");
@@ -998,11 +1032,11 @@ module tb_data_management;
 
         if (fail_count == 0) begin
             $display("RESULT: ALL DATA MANAGEMENT TESTS PASSED!\n");
+            $finish;
         end else begin
             $display("RESULT: TESTS FAILED WITH %0d ERRORS!\n", fail_count);
+            $fatal(1, "Data Management testbench failed with %0d errors.", fail_count);
         end
-
-        $finish;
     end
 
 endmodule

@@ -67,9 +67,11 @@ module output_buffer #(
             end
 
             // Synchronous indexed read interface
-            // Returns data and pulses read_valid only when result is available and address is valid
-            if (read_en && result_available && (read_addr < NUM_ELEMENTS)) begin
-                read_data  <= result_mem[read_addr];
+            // Returns data and pulses read_valid only when result is available and address is valid.
+            // If clear occurs without result_valid, any concurrent read is rejected.
+            // If result_valid and clear overlap, result_valid capture takes priority.
+            if (read_en && (result_valid || (result_available && !clear)) && (read_addr < NUM_ELEMENTS)) begin
+                read_data  <= result_valid ? acc_in[(read_addr * ACC_WIDTH) +: ACC_WIDTH] : result_mem[read_addr];
                 read_valid <= 1'b1;
             end else begin
                 read_data  <= {ACC_WIDTH{1'b0}};
