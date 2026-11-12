@@ -26,13 +26,13 @@ module input_buffer #(
     input  wire                               clk,
     input  wire                               rst_n,
 
-    // Host / matrix_interface write interface
+    // Host / matrix-interface write interface
     input  wire                               write_en,
     input  wire                               write_is_b,
     input  wire [ADDR_WIDTH-1:0]              write_addr,
     input  wire signed [DATA_WIDTH-1:0]       write_data,
 
-    // Status: asserted only when all elements of both A and B have been written
+    // Status: asserted only when all elements of both matrices are written
     output wire                               matrices_ready,
 
     // Controller LOAD phase interface
@@ -62,7 +62,6 @@ module input_buffer #(
     reg [(NUM_ELEMENTS*DATA_WIDTH)-1:0] staged_a;
     reg [(NUM_ELEMENTS*DATA_WIDTH)-1:0] staged_b;
 
-    // Ready indication when all elements of both matrices are written
     assign matrices_ready = (&written_a) & (&written_b);
 
     // Synchronous write and staging logic

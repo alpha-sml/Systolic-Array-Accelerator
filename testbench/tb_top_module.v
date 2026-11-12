@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 
 module tb_top_module;
 
@@ -301,3 +302,5 @@ module tb_top_module;
     end
 
 endmodule
+
+`default_nettype wire

@@ -80,7 +80,7 @@ module tb_mac_unit;
     endtask
 
     initial begin
-        $dumpfile("Phase_1/MAC_PE/testbench/tb_mac_unit.vcd");
+        $dumpfile("build/tb_mac_unit.vcd");
         $dumpvars(0, tb_mac_unit);
 
         errors     = 0;

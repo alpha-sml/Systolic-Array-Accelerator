@@ -269,7 +269,7 @@ module tb_systolic_array;
     endtask
 
     initial begin
-        $dumpfile("Phase_1/Array_Core/testbench/tb_systolic_array.vcd");
+        $dumpfile("build/tb_systolic_array.vcd");
         $dumpvars(0, tb_systolic_array);
 
         errors        = 0;

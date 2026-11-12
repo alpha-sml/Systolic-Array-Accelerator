@@ -245,7 +245,7 @@ module tb_systolic_controller;
         start  = 1'b0;
         rst_n  = 1'b1;
 
-        $dumpfile("Phase_1/Controller/testbench/tb_systolic_controller.vcd");
+        $dumpfile("build/tb_systolic_controller.vcd");
         $dumpvars(0, tb_systolic_controller);
 
         // ------------------------------------------------------------------
