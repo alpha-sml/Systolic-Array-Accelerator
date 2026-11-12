@@ -75,12 +75,18 @@ module matrix_interface #(
     input  wire                         result_available
 );
 
-    // Host matrix write routing: only permit writes while controller is idle
-    assign write_en       = host_write_en && controller_idle;
+    // Host matrix write routing:
+    // Assert write_en and host_write_ack ONLY when:
+    //   1. host_write_en is asserted
+    //   2. controller is idle
+    //   3. host_write_addr is within valid range [0, ARRAY_SIZE*ARRAY_SIZE - 1]
+    wire write_accepted = host_write_en && controller_idle && (host_write_addr < (ARRAY_SIZE * ARRAY_SIZE));
+
+    assign write_en       = write_accepted;
     assign write_is_b     = host_write_is_b;
     assign write_addr     = host_write_addr;
     assign write_data     = host_write_data;
-    assign host_write_ack = controller_idle;
+    assign host_write_ack = write_accepted;
 
     // Host status indications
     assign host_ready            = controller_idle && matrices_ready;
