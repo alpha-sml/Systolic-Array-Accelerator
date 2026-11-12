@@ -45,7 +45,6 @@ module top_module #(
     wire compute_en;
     wire [CYCLE_W-1:0] cycle_count;
     wire controller_result_valid;
-    wire [1:0] controller_state;
 
     wire input_write_en;
     wire input_write_is_b;
@@ -145,7 +144,7 @@ module top_module #(
         .compute_en  (compute_en),
         .cycle_count (cycle_count),
         .result_valid(controller_result_valid),
-        .state       (controller_state)
+        .state       ()
     );
 
     systolic_array #(

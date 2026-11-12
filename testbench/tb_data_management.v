@@ -4,7 +4,7 @@
 //   - output_buffer
 //   - matrix_interface
 //
-// Covers all 27 specified verification items for Task 4 closure.
+// Covers matrix storage, staging, host control, result capture, and reset.
 
 `timescale 1ns / 1ps
 `default_nettype none
@@ -244,7 +244,7 @@ module tb_data_management;
 
     initial begin
         // Waveform dump
-        $dumpfile("Phase_1/Data_Management/testbench/tb_data_management.vcd");
+        $dumpfile("build/tb_data_management.vcd");
         $dumpvars(0, tb_data_management);
 
         $display("================================================================");

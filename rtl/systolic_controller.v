@@ -2,10 +2,9 @@
 // Control-only coordinator for a fixed-point N x N output-stationary
 // systolic matrix-multiply accelerator. Default N is 3.
 //
-// This module does not carry matrix data and does not instantiate the PE,
-// array, buffer, or matrix-interface blocks. It only sequences them.
-// Those blocks are owned elsewhere; their RTL was still a stub when this
-// controller was written, so the ports below ARE the integration contract.
+// This module does not carry matrix data or instantiate the PE, array,
+// buffer, or matrix-interface blocks. It sequences those system-level blocks
+// through the ports below, which form the integration contract.
 //
 // Integration contract (N = ARRAY_SIZE)
 // ------------------------------------

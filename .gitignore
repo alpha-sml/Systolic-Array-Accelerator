@@ -18,6 +18,9 @@ work/
 *.pb
 transcript
 
+# Generated build outputs
+build/
+
 # Synthesis outputs
 *.edf
 *.edif
@@ -30,7 +33,6 @@ transcript
 *.bit
 *.bin
 *.mcs
-*.rpt
 *.runs/
 *.cache/
 *.hw/

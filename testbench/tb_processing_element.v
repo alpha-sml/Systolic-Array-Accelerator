@@ -192,7 +192,7 @@ module tb_processing_element;
     endtask
 
     initial begin
-        $dumpfile("Phase_1/MAC_PE/testbench/tb_processing_element.vcd");
+        $dumpfile("build/tb_processing_element.vcd");
         $dumpvars(0, tb_processing_element);
 
         errors      = 0;
