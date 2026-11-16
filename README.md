@@ -5,18 +5,14 @@ accelerator for signed matrix multiplication. The verified default system is
 a 3x3 output-stationary array with 8-bit signed inputs and 32-bit signed
 accumulators.
 
+## Deliverables
+
+### Phase I Deliverables
+
+- Project Report: [View Phase I Report](report/report.pdf)
+- Project Video: [Watch Phase I Presentation](https://drive.google.com/file/d/1x2GeWZgQnMK2wWIYd1ib1YpxJbkEby2q/view?usp=sharing)
+
 ## Architecture
-
-The integrated data path is:
-
-```text
-Host interface -> Matrix interface -> Input buffer -> Systolic array
-                       |                    ^              |
-                       |                    |              v
-                       +-> Systolic controller ------> Output buffer
-                                                        |
-Host result readback <---------------------------------+
-```
 
 The MAC unit performs signed multiply-accumulate operations inside each
 processing element. Processing elements register A operands eastward and B
@@ -29,30 +25,35 @@ host readback.
 ### System architecture
 
 ```mermaid
-flowchart LR
-    H[Host interface]
-    MI[Matrix interface]
-    IB[Input buffer]
-    SC[Systolic controller]
-    SA[3x3 systolic array]
-    OB[Output buffer]
-    R[Host result readback]
+flowchart TD
+    HOST["Host processor"]
+    MI["Matrix interface<br/>(matrix_interface)"]
+    IB["Input buffer<br/>(input_buffer)"]
+    SC["Systolic controller<br/>(systolic_controller)"]
+    SA["Systolic array (N×N PEs)<br/>(systolic_array)"]
+    OB["Output buffer<br/>(output_buffer)"]
 
-    H -->|matrix writes and start| MI
-    MI -->|accepted matrix writes| IB
+    %% Data Paths (Solid lines)
+    HOST -->|writes, reads and start requests| MI
+    MI -->|accepted writes| IB
     IB -->|skewed A and B operands| SA
-    MI -->|start handshake| SC
-    SC -->|LOAD and COMPUTE control| IB
-    SC -->|compute enable and clear| SA
-    SA -->|accumulator snapshot| OB
-    SC -->|result valid| OB
-    OB -->|synchronous result data| R
-    R -->|read response| H
+    SA -->|accumulator plane| OB
+    OB -->|result readback| MI
+    MI -->|read response| HOST
+
+    %% Control & Status Paths (Dashed lines)
+    MI -.->|start| SC
+    SC -.->|status| MI
+    SC -.->|load_en, load_idx| IB
+    SC -.->|compute_en, clear| SA
+    SC -.->|result_valid| OB
 ```
 
 The matrix interface qualifies host requests and connects the host-facing
-control protocol to the controller and data buffers. Controller signals are
-shown separately from operand and result data paths.
+control protocol to the controller and data buffers. As shown above, the
+systolic controller is a control-only unit with no data ports: it sequences the
+array, the buffers, and the interface through dedicated control strobes.
+Processing elements and interconnect wiring are internal to `systolic_array`.
 
 ### Processing-element dataflow
 
