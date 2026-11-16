@@ -185,7 +185,8 @@ valid result or at an invalid address do not assert `read_valid`.
 │   ├── tb_systolic_array.v
 │   ├── tb_systolic_controller.v
 │   ├── tb_data_management.v
-│   └── tb_top_module.v
+│   ├── tb_top_module.v
+│   └── tb_prototype_demo.v
 └── build
 ```
 
@@ -200,6 +201,12 @@ logs, and waveforms. Its generated contents are ignored by Git; an empty
 - GNU Make.
 
 ## Build and simulation
+
+Run the prototype demonstration:
+
+```sh
+make demo
+```
 
 Run the complete regression:
 

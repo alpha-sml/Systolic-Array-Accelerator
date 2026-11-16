@@ -11,9 +11,13 @@ CTRL_RTL := rtl/control_fsm.v rtl/systolic_controller.v
 DATA_RTL := rtl/input_buffer.v rtl/output_buffer.v rtl/matrix_interface.v
 TOP_RTL := $(ARRAY_RTL) $(CTRL_RTL) $(DATA_RTL) rtl/top_module.v
 
-.PHONY: test test-mac test-pe test-array test-controller test-data test-top synth-check clean
+.PHONY: test test-mac test-pe test-array test-controller test-data test-top synth-check clean demo
 
 test: test-mac test-pe test-array test-controller test-data test-top
+
+demo: $(BUILD_DIR)
+	$(IVERILOG) $(IVERILOG_FLAGS) -s tb_prototype_demo -o $(BUILD_DIR)/tb_prototype_demo.vvp $(TOP_RTL) testbench/tb_prototype_demo.v
+	$(VVP) $(BUILD_DIR)/tb_prototype_demo.vvp
 
 test-mac: $(BUILD_DIR)
 	$(IVERILOG) $(IVERILOG_FLAGS) -s tb_mac_unit -o $(BUILD_DIR)/tb_mac_unit.vvp $(MAC_RTL) testbench/tb_mac_unit.v
