@@ -150,13 +150,13 @@ The controller sequences tile operations via a 6-state FSM:
 
 ## 6. Verification Summary and Results
 
-The self-checking testbench `phase2/scalability/tb_tiled_gemm.v` covers all 8 verification requirements across 1,102 counted checks with zero failures:
+The audit-corrected self-checking testbench `phase2/scalability/tb_tiled_gemm.v` covers all requirements across 1,143 counted checks with zero failures. Any failed assertion immediately triggers `$fatal(1, ...)` ensuring non-zero exit status.
 
 ```
 ==================================================================
 TILED GEMM TEST SUMMARY:
-  PASSED CHECKS: 1102
-  FAILED CHECKS: 0
+  PASSED CHECKS : 1143
+  FAILED CHECKS : 0
 ==================================================================
 RESULT: ALL TILED GEMM TESTS PASSED SUCCESSFULLY!
 ```
@@ -165,19 +165,29 @@ RESULT: ALL TILED GEMM TESTS PASSED SUCCESSFULLY!
 
 1. **Test 1: 3x3 Multiplication via Tiled Architecture:**
    - Validates that setting `cfg_matrix_dim = 3` executes exactly 1 tile operation ($C_{00} = A_{00} \times B_{00}$) and matches independent software reference.
-2. **Test 2: 6x6 Positive-Valued Matrix Multiplication:**
+2. **Test 2: 6x6 Positive-Valued Multiplication + Exact Cycle Counts:**
    - Evaluates full 6x6 matrix multiplication with positive integer matrices. All 36 output elements match the independent reference matrix.
+   - Monitors direct tile-coordinate progression across all 8 tiles in order: $(0,0,0) \to (0,0,1) \to (0,1,0) \to (0,1,1) \to (1,0,0) \to (1,0,1) \to (1,1,0) \to (1,1,1)$.
+   - Verifies the exact 14-cycle scheduling interval per tile.
+   - Verifies the exact 113-cycle compute interval from Tile 0 start to `host_done`.
+   - `display_matrix_6x6` prints actual values read through host readback from the accelerator, not the reference model.
 3. **Test 3: 6x6 Mixed-Sign Matrix Multiplication:**
    - Full four-quadrant signed arithmetic verification, including boundary operands ($-128, +127, -1, 0$). Demonstrates zero sign degradation or bit truncation across inter-tile accumulations.
 4. **Test 4: Correct Inter-Tile Accumulation Verification:**
    - Specifically tests signed cancellation where first reduction tile produces $+50$ and second reduction tile produces $-30$, verifying exact accumulated output ($+20$).
-5. **Test 5: Tile Sequencing and Cycle Counting:**
-   - Confirms deterministic execution of all 8 tile passes in exact row-major tile order: $(0,0,0) \to (0,0,1) \to (0,1,0) \to (0,1,1) \to (1,0,0) \to (1,0,1) \to (1,1,0) \to (1,1,1)$.
+5. **Test 5: Unsupported Configuration Dimension Rejection:**
+   - Verifies that dimensions other than 3x3 and 6x6 (e.g. 5 or 4) are explicitly rejected: `start_ack` is blocked, `start_err` pulses, and writes are rejected.
 6. **Test 6: Asynchronous Reset During Active Computation:**
    - Asserts `rst_n = 0` mid-flight during multi-tile execution. Verifies that all status flags drop immediately, controller returns to IDLE, and subsequent operation completes with 100% correct results.
 7. **Test 7: Back-to-Back Operations Without Reset:**
    - Executes two full 6x6 matrix multiplications in succession. Verifies that Op 2 invalidates prior Op 1 results on start, accepts new matrices, and yields correct output.
 8. **Test 8: Host Interface Protocol Guarantees:**
+   - Verifies rejection of incomplete matrix starts (`start_err = 1`), suppression of held-high `host_start` auto-restarts, rejection of writes during busy computation, and out-of-range read gating.
+9. **Test 9: Exact 221-Cycle Complete Operation Verification:**
+   - End-to-end operation timing with exact boundary markers:
+     - Start point: Cycle 0 (first write beat for element 0 of Matrix A).
+     - End point: Cycle 223 (final read beat for element 35 of Matrix C).
+     - Documented active phases: 72 write beats + 113 compute cycles + 36 read beats = 221 cycles (223 cycles including the two single-cycle phase transitions).
    - Verifies rejection of incomplete matrix starts (`start_err = 1`), suppression of held-high `host_start` auto-restarts, rejection of writes during busy computation, and out-of-range read gating.
 
 ### Verified $6 \times 6$ Sample Matrix Multiplication Output
