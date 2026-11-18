@@ -68,20 +68,19 @@ The physical systolic array has fixed size $N = 3$. The tiled architecture nativ
    - Single-tile pass ($K_{\text{dim}} = 1$).
    - Exactly 1 tile operation evaluated: $C_{00} = A_{00} \times B_{00}$.
    - No inter-tile accumulation ($k=0$ only).
-2. **$6 \times 6$ Matrix Multiplication (`cfg_matrix_dim = 6` or `cfg_matrix_dim = 0`):**
+2. **$6 \times 6$ Matrix Multiplication (`cfg_matrix_dim = 6`):**
    - Four output tiles, two reduction steps ($K_{\text{dim}} = 2$).
    - Exactly 8 tile operations evaluated: $(0,0,0)$ through $(1,1,1)$.
    - Full inter-tile accumulation across reduction index $k \in \{0, 1\}$.
-   - Dimension `0` defaults to $6$ for backwards compatibility.
 
 ### Unsupported Dimensions and Error Mechanism
-- Any other value on `cfg_matrix_dim` (e.g., $1, 2, 4, 5,$ or $> 6$) is **strictly rejected**:
+- Any other value on `cfg_matrix_dim` (e.g., $0, 1, 2, 4, 5,$ or $> 6$) is **strictly rejected**:
   - `dim_unsupported` asserts high within `tiled_gemm_top`.
   - Host writes are rejected: `host_write_ack` remains deasserted (`0`).
   - Input buffer gating blocks `matrices_ready` from asserting (`0`).
   - Start requests are rejected: `start_err` pulses high for 1 clock cycle, `start_ack` remains `0`.
   - The controller never leaves `ST_IDLE`, and no sub-controller operations are initiated.
-  - Arbitrary dimensions are **never** silently treated as valid configurations.
+  - Dimension `0` is explicitly treated as an unsupported dimension and rejected. Arbitrary dimensions are **never** silently treated as valid configurations.
 
 ---
 
@@ -207,7 +206,7 @@ To ensure absolute precision, cycle measurements are anchored to specific hardwa
 ```
 ==================================================================
 TILED GEMM TEST SUMMARY:
-  PASSED CHECKS : 1143
+  PASSED CHECKS : 1164
   FAILED CHECKS : 0
 ==================================================================
 RESULT: ALL TILED GEMM TESTS PASSED SUCCESSFULLY!
@@ -221,12 +220,12 @@ RESULT: ALL TILED GEMM TESTS PASSED SUCCESSFULLY!
 | **Test 2** | $6 \times 6$ Positive-Valued Multiplication | Verifies all 36 elements, exact 14-cycle per-tile interval, exact 113-cycle compute latency, monitors tile order $(0,0,0) \to (1,1,1)$, displays actual readback matrix | 64 | **PASS** |
 | **Test 3** | $6 \times 6$ Mixed-Sign Multiplication | Verifies signed boundary operands ($-128, +127, -1, 0$), sign extension, no saturation | 56 | **PASS** |
 | **Test 4** | Signed Partial-Result Accumulation | Verifies positive and negative tile partial sum cancellation ($+50 + (-30) = +20$) | 20 | **PASS** |
-| **Test 5** | Unsupported Dimension Rejection | Tests invalid dimensions (e.g., 5, 4); verifies write rejection (`host_write_ack = 0`), gating of `matrices_ready`, assertion of `start_err = 1`, and suppression of `start_ack` | 13 | **PASS** |
+| **Test 5** | Unsupported Dimension Rejection | Tests invalid dimensions (5, 4, 0); verifies write rejection (`host_write_ack = 0`), buffer memory unmodified, gating of `matrices_ready`, assertion of `start_err = 1`, and suppression of `start_ack` | 22 | **PASS** |
 | **Test 6** | Asynchronous Reset Recovery | Asserts `rst_n = 0` mid-flight; verifies clean abort to `ST_IDLE`, deassertion of busy flags, and flawless second-run recovery | 62 | **PASS** |
 | **Test 7** | Back-to-Back Operations | Runs two full $6 \times 6$ matrix operations without reset; verifies buffer clear on new start and independent correctness | 80 | **PASS** |
 | **Test 8** | Host Interface Protocol Guarantees | Verifies incomplete matrix rejection, held-high start suppression, busy write rejection, and out-of-range read address gating | 772 | **PASS** |
-| **Test 9** | Exact 221-Cycle Complete Operation | Validates exact streaming write (72 beats), compute (113 cycles), and streaming read (36 beats), within 221–223 cycle envelope | 56 | **PASS** |
-| **Total** | **All 9 Verification Suites** | **Comprehensive Functional & Protocol Coverage** | **1,143** | **PASS** |
+| **Test 9** | Exact 221-Cycle Complete Operation | Validates exact streaming write (72 beats), compute (113 cycles), and streaming read (36 beats), within 221–223 cycle envelope | 68 | **PASS** |
+| **Total** | **All 9 Verification Suites** | **Comprehensive Functional & Protocol Coverage** | **1,164** | **PASS** |
 
 ### Verified $6 \times 6$ Sample Matrix Multiplication Output
 
