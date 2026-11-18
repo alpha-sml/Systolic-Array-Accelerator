@@ -24,7 +24,7 @@ module tiled_gemm_top #(
     input  wire                         clk,
     input  wire                         rst_n,
 
-    // Runtime matrix dimension configuration (3 for 3x3, 6 or 0 for 6x6)
+    // Runtime matrix dimension configuration (3 for 3x3, 6 for 6x6)
     input  wire [3:0]                   cfg_matrix_dim,
 
     // Host control and status

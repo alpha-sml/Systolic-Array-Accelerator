@@ -79,10 +79,13 @@ module tb_tiled_gemm;
     integer idx;
 
     // Cycle-count measurement registers
-    integer t_start;    // time (in clock cycles) of accepted start_ack
+    integer t_start;         // time (in clock cycles) of accepted start_ack
     integer t_compute_start; // time when first sub_start fires
     integer t_compute_end;   // time when host_done fires
-    integer t_last_read; // time of last read_valid
+    integer t_last_read;     // time of last read_valid
+    integer t_comp_start;    // Test 9 compute phase start
+    integer t_comp_end;      // Test 9 compute phase end (host_done)
+    integer t_read_start;    // Test 9 read phase start
 
     // Per-tile start timestamps (for 14-cycle interval check)
     integer tile_start_cycle [0:7];
@@ -655,16 +658,40 @@ module tb_tiled_gemm;
         $display("PASS [Test 4]: Signed inter-tile accumulation (cancellation) verified.");
 
         // ================================================================
-        // TEST 5: Unsupported cfg_matrix_dim must produce start_err
+        // TEST 5: Unsupported cfg_matrix_dim Rejection (writes and starts)
         // ================================================================
         $display("\n--- Test 5: Unsupported cfg_matrix_dim Rejection ---");
 
         // Reset to clear any state
         rst_n = 1'b0; #20; rst_n = 1'b1; @(posedge clk); #1;
 
-        cfg_matrix_dim = 4'd5;   // Not 3 or 6 — must be rejected
-        // Write some elements (should be blocked or at least not trigger start_ack)
-        // Don't even try to load matrices — just attempt a start directly
+        // --- 5.1 Unsupported dimension 5 write rejection ---
+        cfg_matrix_dim = 4'd5;   // Unsupported dimension
+        @(negedge clk);
+        host_write_en   = 1'b1;
+        host_write_is_b = 1'b0;
+        host_write_addr = 6'd0;
+        host_write_data = 8'sd99;
+        @(posedge clk); #1;
+        check(!host_write_ack, "host_write_ack must remain deasserted for unsupported dimension 5 write");
+        check(!dut.u_input_buffer.written_a[0], "written_a[0] must not be set for unsupported dimension 5");
+        check(dut.u_input_buffer.mem_a[0] != 8'sd99, "mem_a[0] must not be modified by rejected write");
+
+        // Attempt write to Matrix B under unsupported dimension 5
+        @(negedge clk);
+        host_write_is_b = 1'b1;
+        host_write_addr = 6'd0;
+        host_write_data = 8'sd77;
+        @(posedge clk); #1;
+        check(!host_write_ack, "host_write_ack must remain deasserted for Matrix B write with unsupported dimension 5");
+        check(!dut.u_input_buffer.written_b[0], "written_b[0] must not be set for unsupported dimension 5");
+        check(dut.u_input_buffer.mem_b[0] != 8'sd77, "mem_b[0] must not be modified by rejected write");
+        @(negedge clk);
+        host_write_en = 1'b0;
+
+        check(!matrices_ready, "matrices_ready must remain deasserted when writes are rejected");
+
+        // --- 5.2 Unsupported dimension 5 start rejection ---
         @(negedge clk);
         host_start = 1'b1;
         @(posedge clk); #1;
@@ -676,8 +703,20 @@ module tb_tiled_gemm;
         check(!start_err, "start_err must clear after 1 cycle");
         check(!host_busy, "DUT must remain idle after rejected unsupported-dim start");
 
-        // Also verify dimension 4 is rejected
-        cfg_matrix_dim = 4'd4;
+        // --- 5.3 Unsupported dimension 4 write and start rejection ---
+        cfg_matrix_dim = 4'd4;   // Unsupported dimension
+        @(negedge clk);
+        host_write_en   = 1'b1;
+        host_write_is_b = 1'b0;
+        host_write_addr = 6'd2;
+        host_write_data = 8'sd55;
+        @(posedge clk); #1;
+        check(!host_write_ack, "host_write_ack must remain deasserted for unsupported dimension 4 write");
+        check(!dut.u_input_buffer.written_a[2], "written_a[2] must not be set for unsupported dimension 4");
+        check(dut.u_input_buffer.mem_a[2] != 8'sd55, "mem_a[2] must not be modified by rejected write");
+        @(negedge clk);
+        host_write_en = 1'b0;
+
         @(negedge clk);
         host_start = 1'b1;
         @(posedge clk); #1;
@@ -685,9 +724,34 @@ module tb_tiled_gemm;
         check(start_err,  "start_err must assert for unsupported dimension 4");
         @(negedge clk);
         host_start = 1'b0;
+        @(posedge clk); #1;
+        check(!host_busy, "DUT must remain idle after rejected dimension 4 start");
+
+        // --- 5.4 Unsupported dimension 0 rejection (0 does NOT select 6x6) ---
+        cfg_matrix_dim = 4'd0;   // Unsupported dimension
+        @(negedge clk);
+        host_write_en   = 1'b1;
+        host_write_is_b = 1'b0;
+        host_write_addr = 6'd0;
+        host_write_data = 8'sd33;
+        @(posedge clk); #1;
+        check(!host_write_ack, "host_write_ack must remain deasserted for unsupported dimension 0 write");
+        check(!dut.u_input_buffer.written_a[0], "written_a[0] must not be set for unsupported dimension 0");
+        @(negedge clk);
+        host_write_en = 1'b0;
+
+        @(negedge clk);
+        host_start = 1'b1;
+        @(posedge clk); #1;
+        check(!start_ack, "start_ack must NOT assert for unsupported dimension 0");
+        check(start_err,  "start_err must assert for unsupported dimension 0");
+        @(negedge clk);
+        host_start = 1'b0;
+        @(posedge clk); #1;
+        check(!host_busy, "DUT must remain idle after rejected dimension 0 start");
 
         cfg_matrix_dim = 4'd6;
-        $display("PASS [Test 5]: Unsupported dimensions correctly rejected.");
+        $display("PASS [Test 5]: Unsupported dimensions correctly rejected (writes and starts).");
 
         // ================================================================
         // TEST 6: Asynchronous reset during active tiled computation
@@ -898,19 +962,26 @@ module tb_tiled_gemm;
         // 2. Compute Phase: start_ack accepted on the next posedge
         @(posedge clk); #1;
         check(start_ack, "Start ack asserted seamlessly after write phase");
+        t_comp_start = cycle_counter;
         @(negedge clk);
         host_start = 1'b0;
 
         timeout = 0;
-        while (!host_result_available && timeout < 200) begin
+        while (!dut.host_done && timeout < 200) begin
             @(posedge clk); #1;
             timeout = timeout + 1;
         end
+        t_comp_end = cycle_counter;
+        check(dut.host_done, "host_done asserted at end of computation");
+
+        // Wait for host_result_available
+        @(posedge clk); #1;
         check(host_result_available, "Result available after host_done");
 
         // 3. Host Read Phase: 36 beats (1 beat per cycle)
         @(negedge clk);
         host_read_en = 1'b1;
+        t_read_start = cycle_counter;
         for (idx = 0; idx < 36; idx = idx + 1) begin
             host_read_addr = idx;
             @(posedge clk); #1;
@@ -926,14 +997,36 @@ module tb_tiled_gemm;
         monitor_active = 1'b0;
 
         begin
-            integer total_meas_cycles;
-            total_meas_cycles = t_last_read - t_start;
-            $display("Total operation cycles: start=%0d, end=%0d, measured=%0d",
-                     t_start, t_last_read, total_meas_cycles);
-            $display("  Documented active phases: 72 write beats + 113 compute cycles + 36 read beats = 221 cycles");
-            $display("  Host-boundary end-to-end interval (including 2 handshake transition cycles): %0d cycles", total_meas_cycles);
-            check(total_meas_cycles >= 221 && total_meas_cycles <= 223,
-                  "End-to-end operation interval within expected 221-223 cycle envelope");
+            integer write_active_cycles;
+            integer compute_active_cycles;
+            integer read_active_cycles;
+            integer active_phase_cycles;
+            integer total_boundary_cycles;
+            integer transition_cycles;
+
+            write_active_cycles   = t_comp_start - 1 - t_start; // exactly 72 write beats
+            compute_active_cycles = t_comp_end - t_comp_start;   // exactly 113 cycles
+            read_active_cycles    = t_last_read - t_read_start;  // exactly 36 read beats
+            active_phase_cycles   = write_active_cycles + compute_active_cycles + read_active_cycles; // 221
+            total_boundary_cycles = t_last_read - t_start;       // 223
+            transition_cycles     = total_boundary_cycles - active_phase_cycles; // 2
+
+            $display("\n==================================================================");
+            $display("EXACT CYCLE BREAKDOWN (TEST 9):");
+            $display("  1. Host Streaming Write Phase : %0d cycles (expected 72)", write_active_cycles);
+            $display("  2. Tiled Computation Phase   : %0d cycles (expected 113)", compute_active_cycles);
+            $display("  3. Host Streaming Read Phase  : %0d cycles (expected 36)", read_active_cycles);
+            $display("  ------------------------------------------------------------------");
+            $display("  Sum of Active Operational Phases : %0d cycles (expected 221)", active_phase_cycles);
+            $display("  Protocol Inter-Phase Transitions : %0d cycles (1 write->start + 1 done->read)", transition_cycles);
+            $display("  Total Host-Boundary Elapsed Time : %0d cycles (expected 223)", total_boundary_cycles);
+            $display("==================================================================\n");
+
+            check(write_active_cycles == 72, "Write phase active cycles == 72");
+            check(compute_active_cycles == 113, "Compute phase active cycles == 113");
+            check(read_active_cycles == 36, "Read phase active cycles == 36");
+            check(active_phase_cycles == 221, "Documented active operational phases == 221 cycles");
+            check(total_boundary_cycles == 223, "Host-boundary end-to-end interval == 223 cycles");
         end
 
         // Verify correct matrix readback from the 221-cycle run
