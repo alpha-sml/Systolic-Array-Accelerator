@@ -55,8 +55,14 @@ module tiled_gemm_top #(
     localparam integer COMPUTE_CYCLES = (3 * ARRAY_SIZE) - 2;
     localparam integer CYCLE_W        = (COMPUTE_CYCLES <= 1) ? 1 : $clog2(COMPUTE_CYCLES);
 
-    // Active matrix dimension selection
-    wire [3:0] active_matrix_dim = (cfg_matrix_dim == 4'd3) ? 4'd3 : 4'd6;
+    // Active matrix dimension selection.
+    // Only 3 (3x3 single-tile) and 6 (6x6 four-tile) are supported.
+    // Any other value is treated as an unsupported configuration:
+    //   - active_matrix_dim is forced to 4'd0 to prevent spurious writes.
+    //   - dim_unsupported is used to block start_ack and assert start_err.
+    wire       dim_unsupported   = (cfg_matrix_dim != 4'd3) && (cfg_matrix_dim != 4'd6);
+    wire [3:0] active_matrix_dim = (cfg_matrix_dim == 4'd3) ? 4'd3 :
+                                   (cfg_matrix_dim == 4'd6) ? 4'd6 : 4'd0;
     wire [ADDR_WIDTH:0] total_elements = active_matrix_dim * active_matrix_dim;
 
     // Sub-controller signals
@@ -86,11 +92,18 @@ module tiled_gemm_top #(
     wire [(ARRAY_SIZE * DATA_WIDTH)-1:0]           b_north;
     wire [(ARRAY_SIZE * ARRAY_SIZE * ACC_WIDTH)-1:0] acc_out;
 
-    // Host write gating: accept only when tiling controller is not busy and address in range
-    wire write_accepted = host_write_en && (!host_busy) && (host_write_addr < total_elements);
+    // Host write gating: accept only when tiling controller is not busy,
+    // the dimension is supported, and the address is in range.
+    wire write_accepted = host_write_en && (!host_busy) && (!dim_unsupported) &&
+                          (host_write_addr < total_elements);
     assign host_write_ack = write_accepted;
 
+    // Unsupported-dimension interlock: mask matrices_ready so the sub-module
+    // start-rejection path naturally emits start_err for unsupported dimensions.
+
     // 1. Matrix Tiling Controller
+    // matrices_ready is AND-gated with !dim_unsupported so the controller's
+    // start-rejection path naturally emits start_err for unsupported dimensions.
     matrix_tiling_controller #(
         .ARRAY_SIZE    (ARRAY_SIZE),
         .MAX_MATRIX_DIM(MAX_MATRIX_SIZE)
@@ -98,7 +111,7 @@ module tiled_gemm_top #(
         .clk             (clk),
         .rst_n           (rst_n),
         .host_start      (host_start),
-        .matrices_ready  (matrices_ready),
+        .matrices_ready  (matrices_ready && !dim_unsupported),
         .matrix_dim      (active_matrix_dim),
         .host_ready      (host_ready),
         .host_busy       (host_busy),

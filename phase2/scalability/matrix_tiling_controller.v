@@ -118,17 +118,12 @@ module matrix_tiling_controller #(
                         if (matrices_ready) begin
                             start_ack     <= 1'b1;
                             out_buf_clear <= 1'b1;
-                            state         <= ST_TILE_START;
+                            sub_start     <= 1'b1;
+                            state         <= ST_TILE_EXEC;
                         end else begin
                             start_err     <= 1'b1;
                         end
                     end
-                end
-
-                ST_TILE_START: begin
-                    // Trigger sub-controller for tile (tile_i, tile_k) x (tile_k, tile_j)
-                    sub_start <= 1'b1;
-                    state     <= ST_TILE_EXEC;
                 end
 
                 ST_TILE_EXEC: begin
@@ -150,18 +145,21 @@ module matrix_tiling_controller #(
                 ST_TILE_NEXT: begin
                     // Advance tile coordinates in row-major order: k inner, j middle, i outer
                     if (tile_k + 1'b1 < k_dim_max) begin
-                        tile_k <= tile_k + 1'b1;
-                        state  <= ST_TILE_START;
+                        tile_k    <= tile_k + 1'b1;
+                        sub_start <= 1'b1;
+                        state     <= ST_TILE_EXEC;
                     end else begin
                         tile_k <= 2'b00;
                         if (tile_j + 1'b1 < k_dim_max) begin
-                            tile_j <= tile_j + 1'b1;
-                            state  <= ST_TILE_START;
+                            tile_j    <= tile_j + 1'b1;
+                            sub_start <= 1'b1;
+                            state     <= ST_TILE_EXEC;
                         end else begin
                             tile_j <= 2'b00;
                             if (tile_i + 1'b1 < k_dim_max) begin
-                                tile_i <= tile_i + 1'b1;
-                                state  <= ST_TILE_START;
+                                tile_i    <= tile_i + 1'b1;
+                                sub_start <= 1'b1;
+                                state     <= ST_TILE_EXEC;
                             end else begin
                                 // All tiles complete
                                 state <= ST_DONE;

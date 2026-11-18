@@ -73,16 +73,21 @@ module tiled_input_buffer #(
     reg [(TILE_ELEMENTS*DATA_WIDTH)-1:0] staged_a;
     reg [(TILE_ELEMENTS*DATA_WIDTH)-1:0] staged_b;
 
-    // Readiness mask generation based on matrix_dim
+    // Readiness mask generation based on matrix_dim (strictly 3x3 or 6x6 supported)
     reg [MAX_ELEMENTS-1:0] expected_mask;
+    wire dim_supported = (matrix_dim == ARRAY_SIZE) || (matrix_dim == MAX_MATRIX_DIM);
+
     always @(*) begin
-        if (matrix_dim <= ARRAY_SIZE)
+        if (matrix_dim == ARRAY_SIZE)
             expected_mask = { {(MAX_ELEMENTS - TILE_ELEMENTS){1'b0}}, {TILE_ELEMENTS{1'b1}} };
-        else
+        else if (matrix_dim == MAX_MATRIX_DIM)
             expected_mask = {MAX_ELEMENTS{1'b1}};
+        else
+            expected_mask = {MAX_ELEMENTS{1'b1}}; // will be blocked by !dim_supported
     end
 
-    assign matrices_ready = ((written_a & expected_mask) == expected_mask) &&
+    assign matrices_ready = dim_supported &&
+                            ((written_a & expected_mask) == expected_mask) &&
                             ((written_b & expected_mask) == expected_mask);
 
     // Synchronous write and staging logic
