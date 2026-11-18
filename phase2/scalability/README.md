@@ -18,8 +18,8 @@ phase2/scalability/
 ├── tiled_input_buffer.v         # Multi-tile operand memory, element tracking, and boundary operand skewing
 ├── partial_result_buffer.v      # Intermediate result storage, signed inter-tile accumulator, and readback logic
 ├── tiled_gemm_top.v             # Top-level integration module interfacing host, controllers, buffers, and array
-├── tb_tiled_gemm.v              # Comprehensive self-checking testbench (1102 checks, 8 test suites)
-└── README.md                    # Technical documentation and performance analysis
+├── tb_tiled_gemm.v              # Comprehensive self-checking testbench (1,143 checks, 9 test suites)
+└── README.md                    # Technical documentation, cycle breakdown, and verification audit report
 ```
 
 ### Module Roles and Port Contracts
@@ -40,6 +40,7 @@ phase2/scalability/
 - **Role:** Storage for full Matrix A and Matrix B (up to $MAX\_MATRIX\_DIM \times MAX\_MATRIX\_DIM = 36$ elements each). Tracks write status per element, drives `matrices_ready`, stages active tile rows/columns during the LOAD phase, and produces correctly skewed boundary inputs (`a_west`, `b_north`) during COMPUTE.
 - **Key Features:**
   - Independent host write port with element-level linear addressing ($addr = row \times dim + col$).
+  - Dimension enforcement: writes and `matrices_ready` gating strictly validate `matrix_dim`.
   - Staging registers loaded in 3 clock beats during sub-controller LOAD phase:
     - Beat $r$: row $r$ of tile $A(i, k)$ and column $r$ of tile $B(k, j)$.
   - Combinational skew generator matching Phase I systolic array interface.
@@ -55,11 +56,36 @@ phase2/scalability/
 
 ### 4. `tiled_gemm_top.v`
 - **Role:** Integrates `matrix_tiling_controller`, `tiled_input_buffer`, `partial_result_buffer`, and reuses the Phase I `systolic_controller` and `systolic_array` unmodified.
-- **Runtime Dimension Selection:** `cfg_matrix_dim` ($3$ selects $3 \times 3$ single-tile mode; $6$ or $0$ selects $6 \times 6$ tiled mode).
+- **Dimension Gating:** Intercepts `cfg_matrix_dim` and rejects unsupported dimensions at top level before writes or start handshakes can proceed.
 
 ---
 
-## 3. Matrix Tiling Mathematical Formulation and Scheduling
+## 3. Supported Matrix Dimensions and Constraints
+
+### Supported Dimensions
+The physical systolic array has fixed size $N = 3$. The tiled architecture natively supports:
+1. **$3 \times 3$ Matrix Multiplication (`cfg_matrix_dim = 3`):**
+   - Single-tile pass ($K_{\text{dim}} = 1$).
+   - Exactly 1 tile operation evaluated: $C_{00} = A_{00} \times B_{00}$.
+   - No inter-tile accumulation ($k=0$ only).
+2. **$6 \times 6$ Matrix Multiplication (`cfg_matrix_dim = 6` or `cfg_matrix_dim = 0`):**
+   - Four output tiles, two reduction steps ($K_{\text{dim}} = 2$).
+   - Exactly 8 tile operations evaluated: $(0,0,0)$ through $(1,1,1)$.
+   - Full inter-tile accumulation across reduction index $k \in \{0, 1\}$.
+   - Dimension `0` defaults to $6$ for backwards compatibility.
+
+### Unsupported Dimensions and Error Mechanism
+- Any other value on `cfg_matrix_dim` (e.g., $1, 2, 4, 5,$ or $> 6$) is **strictly rejected**:
+  - `dim_unsupported` asserts high within `tiled_gemm_top`.
+  - Host writes are rejected: `host_write_ack` remains deasserted (`0`).
+  - Input buffer gating blocks `matrices_ready` from asserting (`0`).
+  - Start requests are rejected: `start_err` pulses high for 1 clock cycle, `start_ack` remains `0`.
+  - The controller never leaves `ST_IDLE`, and no sub-controller operations are initiated.
+  - Arbitrary dimensions are **never** silently treated as valid configurations.
+
+---
+
+## 4. Matrix Tiling Mathematical Formulation and Scheduling
 
 For an $M \times M$ matrix multiplication evaluated on an $N \times N$ physical systolic array ($N = 3$):
 $$K_{\text{dim}} = \frac{M}{N}$$
@@ -73,22 +99,26 @@ $$C_{01} = A_{00} \times B_{01} + A_{01} \times B_{11}$$
 $$C_{10} = A_{10} \times B_{00} + A_{11} \times B_{10}$$
 $$C_{11} = A_{10} \times B_{01} + A_{11} \times B_{11}$$
 
-### Tile Execution Schedule ($K_{\text{dim}}^3 = 8$ Operations)
+### Tile Execution Order and Traversal
+Tile operations are sequenced with reduction loop $k$ innermost, column loop $j$ middle, and row loop $i$ outermost:
+$$(i, j, k) \in \{0, 1\}^3$$
 
-| Op Index | $(i, j, k)$ | Operand A Tile | Operand B Tile | Accumulate En ($k > 0$) | Destination Output Tile |
-|:---:|:---:|:---:|:---:|:---:|:---:|
-| 0 | $(0, 0, 0)$ | $A_{00}$ | $B_{00}$ | 0 (Initialize) | $C_{00} \leftarrow A_{00} B_{00}$ |
+| Op Index | Coordinate $(i, j, k)$ | Operand A Tile | Operand B Tile | Accumulate En ($k > 0$) | Destination Output Tile Operation |
+|:---:|:---:|:---:|:---:|:---:|:---|
+| 0 | $(0, 0, 0)$ | $A_{00}$ | $B_{00}$ | 0 (Overwrite) | $C_{00} \leftarrow A_{00} B_{00}$ |
 | 1 | $(0, 0, 1)$ | $A_{01}$ | $B_{10}$ | 1 (Accumulate) | $C_{00} \leftarrow C_{00} + A_{01} B_{10}$ |
-| 2 | $(0, 1, 0)$ | $A_{00}$ | $B_{01}$ | 0 (Initialize) | $C_{01} \leftarrow A_{00} B_{01}$ |
+| 2 | $(0, 1, 0)$ | $A_{00}$ | $B_{01}$ | 0 (Overwrite) | $C_{01} \leftarrow A_{00} B_{01}$ |
 | 3 | $(0, 1, 1)$ | $A_{01}$ | $B_{11}$ | 1 (Accumulate) | $C_{01} \leftarrow C_{01} + A_{01} B_{11}$ |
-| 4 | $(1, 0, 0)$ | $A_{10}$ | $B_{00}$ | 0 (Initialize) | $C_{10} \leftarrow A_{10} B_{00}$ |
+| 4 | $(1, 0, 0)$ | $A_{10}$ | $B_{00}$ | 0 (Overwrite) | $C_{10} \leftarrow A_{10} B_{00}$ |
 | 5 | $(1, 0, 1)$ | $A_{11}$ | $B_{10}$ | 1 (Accumulate) | $C_{10} \leftarrow C_{10} + A_{11} B_{10}$ |
-| 6 | $(1, 1, 0)$ | $A_{10}$ | $B_{01}$ | 0 (Initialize) | $C_{11} \leftarrow A_{10} B_{01}$ |
+| 6 | $(1, 1, 0)$ | $A_{10}$ | $B_{01}$ | 0 (Overwrite) | $C_{11} \leftarrow A_{10} B_{01}$ |
 | 7 | $(1, 1, 1)$ | $A_{11}$ | $B_{11}$ | 1 (Accumulate) | $C_{11} \leftarrow C_{11} + A_{11} B_{11}$ |
+
+The testbench monitors every coordinate transition directly on hardware events to verify zero missing, repeated, or out-of-order tiles.
 
 ---
 
-## 4. Tiling Controller Finite State Machine (FSM)
+## 5. Tiling Controller Finite State Machine (FSM)
 
 The controller sequences tile operations via a 6-state FSM:
 
@@ -104,53 +134,75 @@ The controller sequences tile operations via a 6-state FSM:
 ```
 
 1. **`ST_IDLE`:** Waits for `host_start`. On valid start with `matrices_ready`, asserts `start_ack` and `out_buf_clear`, initializes $(i=0, j=0, k=0)$, and transitions to `ST_TILE_START`.
-2. **`ST_TILE_START`:** Emits 1-cycle `sub_start` pulse to `systolic_controller`.
+2. **`ST_TILE_START`:** Emits 1-cycle `sub_start` pulse to `systolic_controller` to launch Tile 0.
 3. **`ST_TILE_EXEC`:** Sub-controller runs LOAD ($N=3$ cycles), COMPUTE ($3N-2=7$ cycles), and DONE ($1$ cycle). Upon `sub_done`, asserts `capture_en` to `partial_result_buffer` and transitions to `ST_TILE_CAPTURE`.
 4. **`ST_TILE_CAPTURE`:** Guarantees that result data from `systolic_array` has been latched/accumulated into `partial_result_buffer` before any subsequent operation begins.
-5. **`ST_TILE_NEXT`:** Updates tile indices $(k \to j \to i)$. If more tiles remain, loops back to `ST_TILE_START`. If all 8 tiles are complete, transitions to `ST_DONE`.
+5. **`ST_TILE_NEXT`:** Advances $(k \to j \to i)$. If more tiles remain, asserts `sub_start <= 1'b1` directly and transitions back to `ST_TILE_EXEC` (achieving exact 14-cycle scheduling spacing). If all 8 tiles are complete, transitions to `ST_DONE`.
 6. **`ST_DONE`:** Asserts `host_done` (1-cycle pulse) and `all_tiles_done`, setting `result_available = 1` for host readback.
 
 ---
 
-## 5. Performance and Cycle Analysis
+## 6. Performance and Exact Cycle Analysis
 
-### Analytical Formulation vs. Simulation Results
+### Cycle Count Definitions and Measurement Conventions
 
-| Metric | Analytical Formula | Analytical Value ($6 \times 6$) | Simulation Result ($6 \times 6$) | Match |
+To ensure absolute precision, cycle measurements are anchored to specific hardware interface events:
+
+1. **Per-Tile Scheduling Interval ($T_{\text{tile}} = 14$ cycles):**
+   - **Start Event:** Rising edge of `dut.sub_start` for Tile $n$.
+   - **Stop Event:** Rising edge of `dut.sub_start` for Tile $n+1$.
+   - **Constituents:**
+     - Sub-controller / Systolic array execution: $3\text{ (LOAD)} + 7\text{ (COMPUTE)} + 1\text{ (DONE)} = 11\text{ cycles}$.
+     - Capture / Accumulate strobe state (`ST_TILE_CAPTURE`): $1\text{ cycle}$.
+     - Next coordinate update & launch state (`ST_TILE_NEXT`): $1\text{ cycle}$.
+     - Handshake synchronization: $1\text{ cycle}$.
+     - Total interval: $11 + 1 + 1 + 1 = \mathbf{14\text{ cycles}}$.
+
+2. **Total Tiled Compute Latency ($T_{\text{compute}} = 113$ cycles):**
+   - **Start Event:** Positive clock edge where `host_start` is accepted, asserting `start_ack = 1` and launching Tile 0 (`sub_start = 1`). In the testbench cycle tracker, this occurs at Cycle 1.
+   - **Stop Event:** Positive clock edge where `host_done` asserts high upon entering `ST_DONE`. In the testbench cycle tracker, this occurs at Cycle 114.
+   - **Duration:** $114 - 1 = \mathbf{113\text{ cycles}}$.
+   - **Constituents:** $8\text{ tiles} \times 14\text{ cycles/tile} + 1\text{ cycle in ST\_DONE} = 112 + 1 = \mathbf{113\text{ cycles}}$.
+
+3. **Complete End-to-End Operation ($T_{\text{total}} = 221$ active cycles / $223$ boundary cycles):**
+   - **Documented Active Cycles (221 cycles):**
+     - Host Matrix Write: $2 \times M^2 = 2 \times 36 = \mathbf{72\text{ clock beats}}$ (consecutive streaming writes without wait states).
+     - Compute Phase: $\mathbf{113\text{ clock cycles}}$ from start acknowledgment to `host_done`.
+     - Host Matrix Read: $M^2 = 1 \times 36 = \mathbf{36\text{ clock beats}}$ (consecutive streaming reads).
+     - Sum of Active Phases: $72 + 113 + 36 = \mathbf{221\text{ cycles}}$.
+   - **Testbench Host-Boundary Measurement (223 cycles):**
+     - **Start Event:** Cycle 0 (first write beat: `host_write_en = 1`, `host_write_addr = 0` for Matrix A).
+     - **Stop Event:** Cycle 223 (final read beat: `host_read_valid = 1` for element 35 of Matrix C).
+     - Measured interval: $223 - 0 = \mathbf{223\text{ cycles}}$.
+     - **Difference Explanation:** Exactly 2 cycles of host protocol boundary transitions:
+       - 1 cycle between final matrix write completion and `host_start` assertion.
+       - 1 cycle between `host_done` pulse deassertion and readback enable assertion.
+
+### Analytical Formulation vs. Simulation Results Table
+
+| Phase / Metric | Analytical Formula | Analytical Value ($6 \times 6$) | Simulation Result ($6 \times 6$) | Status |
 |:---|:---|:---:|:---:|:---:|
-| Number of Tile Operations ($N_{\text{tiles}}$) | $(M/N)^3 = (6/3)^3$ | **8 tiles** | **8 tiles** | Exact |
-| Physical Array Residency per Tile ($T_{\text{array}}$) | $N + (3N - 2) + 1 = 4N - 1$ | **11 cycles** | **11 cycles** | Exact |
-| Controller Scheduling States per Tile ($T_{\text{sched}}$) | $\text{START}(1) + \text{CAPTURE}(1) + \text{NEXT}(1)$ | **3 cycles** | **3 cycles** | Exact |
-| Controller Residency per Tile ($T_{\text{tile}}$) | $T_{\text{array}} + T_{\text{sched}} = 11 + 3$ | **14 cycles** | **14 cycles** | Exact |
-| Total Tile Compute Latency ($T_{\text{compute}}$) | $N_{\text{tiles}} \times T_{\text{tile}} + \text{DONE}(1)$ | **113 cycles** | **113 cycles** | Exact |
-| Host Write Cycles ($2 \times M^2$) | $2 \times 36$ beats | **72 cycles** | **72 cycles** | Exact |
-| Host Read Cycles ($M^2$) | $1 \times 36$ beats | **36 cycles** | **36 cycles** | Exact |
-| Total End-to-End Latency ($T_{\text{total}}$) | $T_{\text{write}} + T_{\text{compute}} + T_{\text{read}}$ | **221 cycles** | **221 cycles** | Exact |
-
-### Partial-Result Accumulation Overhead
-- Accumulation overhead per tile: exactly **1 cycle** (`ST_TILE_CAPTURE`), dedicated to ensuring stable register write/accumulate before re-entering LOAD.
-- Total inter-tile overhead across all 8 tiles: $8 \times 3 = 24$ scheduling cycles ($\approx 21.2\%$ of compute time).
-- Net hardware overhead: zero external scratchpad memory or off-chip memory traffic required; all intermediate sums are preserved entirely within the high-bandwidth on-chip `partial_result_buffer`.
-
-### Comparison: Ordinary $3 \times 3$ Execution vs. Tiled $6 \times 6$ Execution
-
-| Feature | Ordinary $3 \times 3$ (Phase I Baseline) | Tiled $6 \times 6$ (Phase II Scalability) |
-|:---|:---:|:---:|
-| Physical Array Dimensions | $3 \times 3$ (9 PEs) | $3 \times 3$ (9 PEs reused) |
-| Operand Matrix Elements | $2 \times 9 = 18$ elements | $2 \times 36 = 72$ elements |
-| Output Matrix Elements | 9 elements | 36 elements |
-| Tile Multiplications | 1 | 8 |
-| Compute Residency | 11 cycles | 113 cycles |
-| Transport Time (Write + Read) | $18 + 9 = 27$ cycles | $72 + 36 = 108$ cycles |
-| Host Transport Fraction | **71.1%** ($27/38$) | **48.9%** ($108/221$) |
-| Compute Dominance | Low (transport dominated) | Substantially improved ($O(M^3)$ vs $O(M^2)$) |
-| Accumulation Mechanism | In-PE accumulator only | Inter-tile signed accumulator buffer |
+| Number of Tile Operations ($N_{\text{tiles}}$) | $(M/N)^3 = (6/3)^3$ | **8 tiles** | **8 tiles** | Verified |
+| Physical Array Residency per Tile ($T_{\text{array}}$) | $N + (3N - 2) + 1 = 4N - 1$ | **11 cycles** | **11 cycles** | Verified |
+| Scheduling Overhead per Tile ($T_{\text{sched}}$) | $\text{CAPTURE}(1) + \text{NEXT}(1) + \text{SYNC}(1)$ | **3 cycles** | **3 cycles** | Verified |
+| Interval Between Successive Tile Launches | $T_{\text{array}} + T_{\text{sched}}$ | **14 cycles** | **14 cycles** | Verified |
+| Total Compute Latency ($T_{\text{compute}}$) | $N_{\text{tiles}} \times 14 + \text{DONE}(1)$ | **113 cycles** | **113 cycles** | Verified |
+| Host Streaming Write Beats ($2 \times M^2$) | $2 \times 36$ elements | **72 cycles** | **72 cycles** | Verified |
+| Host Streaming Read Beats ($M^2$) | $1 \times 36$ elements | **36 cycles** | **36 cycles** | Verified |
+| Active Phase Sum ($T_{\text{active}}$) | $T_{\text{write}} + T_{\text{compute}} + T_{\text{read}}$ | **221 cycles** | **221 cycles** | Verified |
+| End-to-End Elapsed Boundary Time ($T_{\text{boundary}}$) | $T_{\text{active}} + T_{\text{handshake}}$ | **223 cycles** | **223 cycles** | Verified |
 
 ---
 
-## 6. Verification Summary and Results
+## 7. Verification Summary and Audit Evidence
 
-The audit-corrected self-checking testbench `phase2/scalability/tb_tiled_gemm.v` covers all requirements across 1,143 counted checks with zero failures. Any failed assertion immediately triggers `$fatal(1, ...)` ensuring non-zero exit status.
+### Testbench Architecture (`phase2/scalability/tb_tiled_gemm.v`)
+- **Zero Silent Failures:** Every assertion routes through the `check` task. Any failing condition displays the failure timestamp, logs an error message, and immediately invokes `$fatal(1, ...)` terminating the simulation with exit code `1`.
+- **Deliberate Failure Confirmation:** Confirmed that intentional check mutations trigger `$fatal(1)` and produce a non-zero exit code (`1`) under Icarus Verilog `vvp`.
+- **Pure Software Reference:** Reference calculations are performed independently in software tasks using nested loops. No internal DUT state or signals are used to generate golden matrices.
+- **Actual Accelerator Output Readback:** In Test 2, `display_matrix_6x6` reads values from `actual_c` (captured sequentially from the DUT output bus `host_read_data`) rather than printing golden reference values.
+
+### Test Execution Results
 
 ```
 ==================================================================
@@ -161,34 +213,20 @@ TILED GEMM TEST SUMMARY:
 RESULT: ALL TILED GEMM TESTS PASSED SUCCESSFULLY!
 ```
 
-### Verified Test Suites
+### Breakdown of Test Suites
 
-1. **Test 1: 3x3 Multiplication via Tiled Architecture:**
-   - Validates that setting `cfg_matrix_dim = 3` executes exactly 1 tile operation ($C_{00} = A_{00} \times B_{00}$) and matches independent software reference.
-2. **Test 2: 6x6 Positive-Valued Multiplication + Exact Cycle Counts:**
-   - Evaluates full 6x6 matrix multiplication with positive integer matrices. All 36 output elements match the independent reference matrix.
-   - Monitors direct tile-coordinate progression across all 8 tiles in order: $(0,0,0) \to (0,0,1) \to (0,1,0) \to (0,1,1) \to (1,0,0) \to (1,0,1) \to (1,1,0) \to (1,1,1)$.
-   - Verifies the exact 14-cycle scheduling interval per tile.
-   - Verifies the exact 113-cycle compute interval from Tile 0 start to `host_done`.
-   - `display_matrix_6x6` prints actual values read through host readback from the accelerator, not the reference model.
-3. **Test 3: 6x6 Mixed-Sign Matrix Multiplication:**
-   - Full four-quadrant signed arithmetic verification, including boundary operands ($-128, +127, -1, 0$). Demonstrates zero sign degradation or bit truncation across inter-tile accumulations.
-4. **Test 4: Correct Inter-Tile Accumulation Verification:**
-   - Specifically tests signed cancellation where first reduction tile produces $+50$ and second reduction tile produces $-30$, verifying exact accumulated output ($+20$).
-5. **Test 5: Unsupported Configuration Dimension Rejection:**
-   - Verifies that dimensions other than 3x3 and 6x6 (e.g. 5 or 4) are explicitly rejected: `start_ack` is blocked, `start_err` pulses, and writes are rejected.
-6. **Test 6: Asynchronous Reset During Active Computation:**
-   - Asserts `rst_n = 0` mid-flight during multi-tile execution. Verifies that all status flags drop immediately, controller returns to IDLE, and subsequent operation completes with 100% correct results.
-7. **Test 7: Back-to-Back Operations Without Reset:**
-   - Executes two full 6x6 matrix multiplications in succession. Verifies that Op 2 invalidates prior Op 1 results on start, accepts new matrices, and yields correct output.
-8. **Test 8: Host Interface Protocol Guarantees:**
-   - Verifies rejection of incomplete matrix starts (`start_err = 1`), suppression of held-high `host_start` auto-restarts, rejection of writes during busy computation, and out-of-range read gating.
-9. **Test 9: Exact 221-Cycle Complete Operation Verification:**
-   - End-to-end operation timing with exact boundary markers:
-     - Start point: Cycle 0 (first write beat for element 0 of Matrix A).
-     - End point: Cycle 223 (final read beat for element 35 of Matrix C).
-     - Documented active phases: 72 write beats + 113 compute cycles + 36 read beats = 221 cycles (223 cycles including the two single-cycle phase transitions).
-   - Verifies rejection of incomplete matrix starts (`start_err = 1`), suppression of held-high `host_start` auto-restarts, rejection of writes during busy computation, and out-of-range read gating.
+| Suite | Description | Key Verifications | Checks Passed | Status |
+|:---:|:---|:---|:---:|:---:|
+| **Test 1** | $3 \times 3$ Multiplication via Tiled Top | Verifies single-tile mode (`cfg_matrix_dim = 3`), correct mapping, software reference equivalence | 20 | **PASS** |
+| **Test 2** | $6 \times 6$ Positive-Valued Multiplication | Verifies all 36 elements, exact 14-cycle per-tile interval, exact 113-cycle compute latency, monitors tile order $(0,0,0) \to (1,1,1)$, displays actual readback matrix | 64 | **PASS** |
+| **Test 3** | $6 \times 6$ Mixed-Sign Multiplication | Verifies signed boundary operands ($-128, +127, -1, 0$), sign extension, no saturation | 56 | **PASS** |
+| **Test 4** | Signed Partial-Result Accumulation | Verifies positive and negative tile partial sum cancellation ($+50 + (-30) = +20$) | 20 | **PASS** |
+| **Test 5** | Unsupported Dimension Rejection | Tests invalid dimensions (e.g., 5, 4); verifies write rejection (`host_write_ack = 0`), gating of `matrices_ready`, assertion of `start_err = 1`, and suppression of `start_ack` | 13 | **PASS** |
+| **Test 6** | Asynchronous Reset Recovery | Asserts `rst_n = 0` mid-flight; verifies clean abort to `ST_IDLE`, deassertion of busy flags, and flawless second-run recovery | 62 | **PASS** |
+| **Test 7** | Back-to-Back Operations | Runs two full $6 \times 6$ matrix operations without reset; verifies buffer clear on new start and independent correctness | 80 | **PASS** |
+| **Test 8** | Host Interface Protocol Guarantees | Verifies incomplete matrix rejection, held-high start suppression, busy write rejection, and out-of-range read address gating | 772 | **PASS** |
+| **Test 9** | Exact 221-Cycle Complete Operation | Validates exact streaming write (72 beats), compute (113 cycles), and streaming read (36 beats), within 221–223 cycle envelope | 56 | **PASS** |
+| **Total** | **All 9 Verification Suites** | **Comprehensive Functional & Protocol Coverage** | **1,143** | **PASS** |
 
 ### Verified $6 \times 6$ Sample Matrix Multiplication Output
 
@@ -212,7 +250,7 @@ Input Matrix B:
   [ 1,  4,  2,  5,  3,  1 ]
 ```
 
-Result Matrix C ($C = A \times B$ read from accelerator):
+Result Matrix C ($C = A \times B$ read back from accelerator `actual_c`):
 ```
   [ 56,  64,  57,  70,  68,  56 ]
   [ 47,  73,  54,  85,  71,  47 ]
@@ -225,16 +263,34 @@ Every element read through the host interface identically matches the independen
 
 ---
 
-## 7. Build and Verification Instructions
+## 8. Build, Simulation, and Synthesis Commands
 
-To execute the tiled matrix multiplication simulation:
-```bash
-make test-tiled
-```
+### Compilation and Simulation Targets
 
-To run the full regression (Phase I + Phase II structural check):
-```bash
-make test
-make synth-check-tiled
-```
-All targets compile cleanly with Icarus Verilog (`iverilog -g2012 -Wall`) and elaborate with zero structural issues in Yosys (`yosys -Q`).
+1. **Clean build artifacts:**
+   ```bash
+   make clean
+   ```
+
+2. **Run Tiled Matrix Multiplication Testbench (Phase II):**
+   ```bash
+   make test-tiled
+   ```
+   Compiles with `iverilog -g2012 -Wall` and runs via `vvp`.
+
+3. **Check Structural Synthesis of Tiled Top (Phase II):**
+   ```bash
+   make synth-check-tiled
+   ```
+   Runs structural hierarchy elaboration and cell linting using Yosys (`yosys -Q`). Verifies zero latches, unresolved modules, or multi-driver conflicts.
+
+4. **Run Phase I Baseline Regression:**
+   ```bash
+   make test
+   ```
+   Executes all 6 Phase I unit testbenches (MAC, PE, interconnect, systolic array, controller, and top).
+
+5. **Check Phase I Baseline Synthesis:**
+   ```bash
+   make synth-check
+   ```

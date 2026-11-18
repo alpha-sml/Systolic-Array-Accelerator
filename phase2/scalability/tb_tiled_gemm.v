@@ -139,7 +139,7 @@ module tb_tiled_gemm;
     // -----------------------------------------------------------------
     task automatic check;
         input condition;
-        input [511:0] message;
+        input [1023:0] message;
         begin
             if (condition) begin
                 passed = passed + 1;
