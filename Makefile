@@ -10,8 +10,9 @@ ARRAY_RTL := $(PE_RTL) rtl/pe_interconnect.v rtl/systolic_array.v
 CTRL_RTL := rtl/control_fsm.v rtl/systolic_controller.v
 DATA_RTL := rtl/input_buffer.v rtl/output_buffer.v rtl/matrix_interface.v
 TOP_RTL := $(ARRAY_RTL) $(CTRL_RTL) $(DATA_RTL) rtl/top_module.v
+TILED_RTL := $(ARRAY_RTL) $(CTRL_RTL) phase2/scalability/matrix_tiling_controller.v phase2/scalability/tiled_input_buffer.v phase2/scalability/partial_result_buffer.v phase2/scalability/tiled_gemm_top.v
 
-.PHONY: test test-mac test-pe test-array test-controller test-data test-top synth-check clean demo
+.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled synth-check synth-check-tiled clean demo
 
 test: test-mac test-pe test-array test-controller test-data test-top
 
@@ -43,9 +44,20 @@ test-top: $(BUILD_DIR)
 	$(IVERILOG) $(IVERILOG_FLAGS) -s tb_top_module -o $(BUILD_DIR)/tb_top_module.vvp $(TOP_RTL) testbench/tb_top_module.v
 	$(VVP) $(BUILD_DIR)/tb_top_module.vvp
 
+test-tiled: $(BUILD_DIR)
+	$(IVERILOG) $(IVERILOG_FLAGS) -s tb_tiled_gemm -o $(BUILD_DIR)/tb_tiled_gemm.vvp $(TILED_RTL) phase2/scalability/tb_tiled_gemm.v
+	$(VVP) $(BUILD_DIR)/tb_tiled_gemm.vvp
+
 synth-check: $(BUILD_DIR)
 	@if command -v $(YOSYS) >/dev/null 2>&1; then \
 		$(YOSYS) -Q -p 'read_verilog -sv $(TOP_RTL); hierarchy -check -top top_module; proc; check'; \
+	else \
+		echo "Yosys is not installed; structural check was not run."; \
+	fi
+
+synth-check-tiled: $(BUILD_DIR)
+	@if command -v $(YOSYS) >/dev/null 2>&1; then \
+		$(YOSYS) -Q -p 'read_verilog -sv $(TILED_RTL); hierarchy -check -top tiled_gemm_top; proc; check'; \
 	else \
 		echo "Yosys is not installed; structural check was not run."; \
 	fi
