@@ -14,8 +14,9 @@ TILED_RTL := $(ARRAY_RTL) $(CTRL_RTL) phase2/scalability/matrix_tiling_controlle
 PERF_RTL := $(TOP_RTL) phase2/scalability/matrix_tiling_controller.v phase2/scalability/tiled_input_buffer.v phase2/scalability/partial_result_buffer.v phase2/scalability/tiled_gemm_top.v
 BURST_IF_RTL := $(ARRAY_RTL) $(CTRL_RTL) phase2/scalability/tiled_input_buffer.v phase2/scalability/matrix_tiling_controller.v phase2/scalability/partial_result_buffer.v phase2/interface/burst_matrix_interface.v
 PHASE2_TOP_RTL := $(BURST_IF_RTL) phase2/integration/phase2_top_module.v
+BASELINE_RTL := phase2/baseline/sequential_gemm.v
 
-.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled test-performance test-burst-interface test-phase2-top test-phase2 synth-check synth-check-tiled synth-check-phase2-top clean demo
+.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled test-performance test-burst-interface test-phase2-top test-baseline test-phase2 synth-check synth-check-tiled synth-check-phase2-top clean demo
 
 test: test-mac test-pe test-array test-controller test-data test-top
 
@@ -63,7 +64,11 @@ test-phase2-top: $(BUILD_DIR)
 	$(IVERILOG) $(IVERILOG_FLAGS) -s tb_phase2_top -o $(BUILD_DIR)/tb_phase2_top.vvp $(PHASE2_TOP_RTL) phase2/integration/tb_phase2_top.v
 	$(VVP) $(BUILD_DIR)/tb_phase2_top.vvp
 
-test-phase2: test-tiled test-performance test-burst-interface test-phase2-top
+test-baseline: $(BUILD_DIR)
+	$(IVERILOG) $(IVERILOG_FLAGS) -s tb_sequential_gemm -o $(BUILD_DIR)/tb_sequential_gemm.vvp $(BASELINE_RTL) phase2/baseline/tb_sequential_gemm.v
+	$(VVP) $(BUILD_DIR)/tb_sequential_gemm.vvp
+
+test-phase2: test-tiled test-performance test-burst-interface test-phase2-top test-baseline
 
 synth-check: $(BUILD_DIR)
 	@if command -v $(YOSYS) >/dev/null 2>&1; then \

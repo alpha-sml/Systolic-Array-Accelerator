@@ -136,7 +136,7 @@ Phase II is organized into **exactly five** technical tasks mapped to topic-base
 | **Task 1** | `phase2/scalability/` | `tile_scheduler.v`, `partial_result_buffer.v`, `tiled_controller.v` | `tb_tile_scheduler.v`, `tb_tiled_gemm.v` (larger matrices e.g. $6\times 6$, $9\times 9$ on $3\times 3$ array) |
 | **Task 2** | `phase2/optimization/` | `mac_unit_opt.v`, `processing_element_opt.v` (and optional `mac_zero_skip.v` / `mac_reduced_prec.v`) | `tb_mac_opt.v`, `tb_pe_opt.v` (signed boundary, wraparound, zero-skip, reduced-precision checks) |
 | **Task 3** | `phase2/interface/`, `phase2/integration/` | `burst_matrix_interface.v`, `dma_adapter.v` (optional), `double_buffer_input.v` (optional), `phase2_top_module.v` | `tb_burst_interface.v`, `tb_double_buffer.v` (optional), `tb_phase2_top.v` (end-to-end integration & error/reset checks) |
-| **Task 4** | `phase2/baseline/`, `phase2/performance/` | `seq_matmul_baseline.v`, benchmark/analysis scripts (Python/Makefile) | `tb_seq_baseline.v`, cycle-count comparison logs, performance tables and plots |
+| **Task 4** | `phase2/baseline/`, `phase2/performance/` | `sequential_gemm.v`, benchmark/analysis scripts (Makefile) | `tb_sequential_gemm.v`, cycle-count comparison logs, performance tables and documentation |
 | **Task 5** | `phase2/fpga/` | Synthesis scripts (Vivado Tcl / Yosys+nextpnr), constraint files (`.xdc` / `.sdc`), FPGA top wrapper | Synthesis/STA/PnR reports, utilisation & $f_{\max}$ summaries, hardware test logs (if available) |
 
 ---
