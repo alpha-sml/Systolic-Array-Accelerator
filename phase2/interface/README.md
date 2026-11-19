@@ -239,3 +239,4 @@ iverilog -g2012 -Wall -s tb_burst_interface -o build/tb_burst_interface.vvp \
     phase2/interface/burst_matrix_interface.v phase2/interface/tb_burst_interface.v
 vvp build/tb_burst_interface.vvp
 ```
+

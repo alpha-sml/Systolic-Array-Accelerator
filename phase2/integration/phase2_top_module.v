@@ -316,3 +316,4 @@ module phase2_top_module #(
 endmodule
 
 `default_nettype wire
+
