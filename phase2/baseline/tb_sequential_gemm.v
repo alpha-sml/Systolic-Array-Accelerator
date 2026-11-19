@@ -7,7 +7,9 @@
 //        - Unsupported matrix dimensions (0, 1, 2, 4, 5, 7) trigger start_err.
 //        - Incomplete matrix loading (matrices_ready == 0) triggers start_err.
 //        - Start request while busy triggers start_err.
-//        - Write attempts during computation fail to acknowledge and do not corrupt memory.
+//        - Write attempts during ST_COMP are rejected (host_write_ack == 0, memory uncorrupted).
+//        - Write attempts during ST_DONE are rejected (host_write_ack == 0, memory uncorrupted).
+//        - Write acceptance recovers cleanly upon returning to ST_IDLE.
 //        - Out-of-bounds writes fail to acknowledge.
 //        - Readback when results not available or out-of-bounds returns valid == 0.
 //   3. 3x3 matrix multiplication with positive integer operands:
@@ -392,6 +394,82 @@ module tb_sequential_gemm;
         @(posedge clk);
         #1;
 
+        // 5. Targeted test: Write rejection during ST_COMP, ST_DONE, and write recovery in ST_IDLE
+        reset_dut();
+        cfg_matrix_dim <= 4'd3;
+        for (i = 0; i < 9; i = i + 1) begin
+            ref_a[i] = 8'sd10 + i;
+            ref_b[i] = 8'sd20 + i;
+        end
+        load_matrices(3, m3_load);
+        check("matrices loaded and ready for compute", matrices_ready == 1'b1);
+        check("pre-compute mem_a[0] is 10", dut.mem_a[0] === 8'sd10);
+        check("pre-compute mem_b[0] is 20", dut.mem_b[0] === 8'sd20);
+
+        // Launch computation: host_start = 1
+        host_start <= 1'b1;
+        @(posedge clk);
+        #1;
+        check("start_ack asserted", start_ack == 1'b1);
+        check("DUT entered ST_COMP (host_busy=1)", host_busy == 1'b1 && dut.state == 2'b01);
+        host_start <= 1'b0;
+
+        // (a) Write attempted during ST_COMP is rejected
+        repeat (5) @(posedge clk);
+        #1;
+        check("DUT is in ST_COMP", dut.state == 2'b01 && host_busy == 1'b1);
+        host_write_en   <= 1'b1;
+        host_write_is_b <= 1'b0;
+        host_write_addr <= 6'd0;
+        host_write_data <= 8'sd99;
+        #1;
+        check("host_write_ack is 0 during ST_COMP", host_write_ack == 1'b0);
+        @(posedge clk);
+        #1;
+        check("host_write_ack remains 0 after clock edge in ST_COMP", host_write_ack == 1'b0);
+        host_write_en <= 1'b0;
+        #1;
+        check("mem_a[0] was NOT corrupted during ST_COMP (remains 10)", dut.mem_a[0] === 8'sd10);
+
+        // (b) Write attempted during ST_DONE is rejected & host_write_ack remains low
+        while (!host_done) begin
+            @(posedge clk);
+            #1;
+        end
+        check("host_done asserted (entered ST_DONE)", host_done == 1'b1);
+        check("DUT state is ST_DONE (2'b10)", dut.state == 2'b10);
+        check("host_busy is 0 in ST_DONE", host_busy == 1'b0);
+
+        host_write_en   <= 1'b1;
+        host_write_is_b <= 1'b0;
+        host_write_addr <= 6'd0;
+        host_write_data <= 8'sd77;
+        #1;
+        check("host_write_ack remains 0 during ST_DONE", host_write_ack == 1'b0);
+
+        @(posedge clk);
+        #1;
+        host_write_en <= 1'b0;
+
+        // (c) Rejected write does not corrupt previously stored matrix data
+        check("DUT transitioned to ST_IDLE", dut.state == 2'b00);
+        check("mem_a[0] was NOT corrupted by ST_DONE write attempt (remains 10)", dut.mem_a[0] === 8'sd10);
+        check("mem_b[0] was NOT corrupted (remains 20)", dut.mem_b[0] === 8'sd20);
+        check("result_available remains valid (1)", host_result_available == 1'b1);
+
+        // (d) Normal writes are accepted again after FSM returns to ST_IDLE
+        host_write_en   <= 1'b1;
+        host_write_is_b <= 1'b0;
+        host_write_addr <= 6'd0;
+        host_write_data <= 8'sd42;
+        #1;
+        check("host_write_ack is 1 in ST_IDLE for valid write", host_write_ack == 1'b1);
+        @(posedge clk);
+        #1;
+        host_write_en <= 1'b0;
+        #1;
+        check("mem_a[0] was successfully updated in ST_IDLE to 42", dut.mem_a[0] === 8'sd42);
+
         // =============================================================
         // Suite 3: 3x3 Matrix Multiplication (Positive Operands)
         // =============================================================
@@ -416,8 +494,6 @@ module tb_sequential_gemm;
         check("3x3 active latency is exactly 54 cycles", m3_act == 54);
         check("3x3 seamless E2E latency is exactly 56 cycles", m3_e2e == 56);
 
-        // Verify write rejection while busy:
-        // We know host_busy is currently 0, but let's test busy rejection in next suite during execution.
 
         // =============================================================
         // Suite 4: 3x3 Signed Boundary Operands (-128, +127, -1, 0, +1)

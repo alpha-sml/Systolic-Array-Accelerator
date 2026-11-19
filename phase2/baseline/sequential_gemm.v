@@ -8,8 +8,10 @@
 //   - Zero parallel PEs, zero systolic interconnects, single MAC execution.
 //   - FSM States:
 //       * ST_IDLE (2'b00): Accepts matrix writes for A and B, validates cfg_matrix_dim.
-//       * ST_COMP (2'b01): Iterates over (i, j, k) performing 1 MAC per cycle.
-//       * ST_DONE (2'b10): Asserts host_done pulse, sets host_result_available.
+//       * ST_COMP (2'b01): Iterates over (i, j, k) performing 1 MAC per cycle; asserts
+//                          host_done pulse and transitions to ST_DONE on final compute edge.
+//       * ST_DONE (2'b10): Single-cycle completion state; holds host_done, rejects writes,
+//                          and returns to ST_IDLE on the subsequent clock edge.
 //   - Supports 3x3 (M=3, 27 compute cycles) and 6x6 (M=6, 216 compute cycles).
 //   - Arithmetic specification:
 //       * 8-bit signed two's-complement matrix operands (DATA_WIDTH = 8).
@@ -95,8 +97,8 @@ module sequential_gemm #(
                             ((written_a & expected_mask) == expected_mask) &&
                             ((written_b & expected_mask) == expected_mask);
 
-    // Host write gating: reject writes if busy, unsupported dim, or address out of range
-    wire write_accepted = host_write_en && (!host_busy) && dim_supported && (host_write_addr < total_elements);
+    // Host write gating: reject writes if not in ST_IDLE, unsupported dim, or address out of range
+    wire write_accepted = host_write_en && (state == ST_IDLE) && dim_supported && (host_write_addr < total_elements);
     assign host_write_ack = write_accepted;
 
     // Host status indications
