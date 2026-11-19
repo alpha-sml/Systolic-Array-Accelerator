@@ -76,14 +76,18 @@ The controller FSM operates with three distinct states:
   |  ST_IDLE  | ------------------------------> |  ST_COMP  |   |
   +-----------+                                 +-----------+   |
         ^                                             |         |
-        |               host_done (1 cycle)           | k==M-1  |
-        +---------------------------------------------+ j==M-1  |
-        |                 ST_DONE                     | i==M-1  |
-        +---------------------------------------------+---------+
+        |                                             | k==M-1  |
+        |                                             | j==M-1  |
+        |                                             | i==M-1  |
+        |                                             v         |
+        |         host_done (1-cycle pulse)     +-----------+   |
+        +-------------------------------------- |  ST_DONE  |   |
+                  (writes rejected)             +-----------+   |
 ```
 
 1. **`ST_IDLE` (2'b00)**:
    - Host streams Matrix A and Matrix B through `host_write_en`, `host_write_is_b`, `host_write_addr`, `host_write_data`.
+   - Host writes are accepted **only in `ST_IDLE`** (`state == ST_IDLE`).
    - Element write masks `written_a` and `written_b` track loading. When all $2 M^2$ elements are loaded, `matrices_ready` asserts.
    - Start qualification: When `host_start` asserts:
      - If dimension is invalid or `!matrices_ready`, emits single-cycle `start_err` pulse and stays idle.
@@ -92,13 +96,19 @@ The controller FSM operates with three distinct states:
 2. **`ST_COMP` (2'b01)**:
    - Loops through indices $i \in [0, M-1]$, $j \in [0, M-1]$, $k \in [0, M-1]$.
    - Each clock cycle executes exactly 1 multiply-accumulate operation.
-   - Any concurrent `host_start` or write attempt is rejected with `start_err` / `host_write_ack = 0`.
-   - On the final step ($i = M-1, j = M-1, k = M-1$), writes `mem_c[M*M - 1]`, sets `host_done = 1`, `host_result_available = 1`, `host_busy = 0`, and transitions to `ST_DONE`.
+   - Host writes are strictly rejected (`write_accepted = 0`, `host_write_ack = 0`) to prevent data corruption during computation.
+   - Any concurrent `host_start` is rejected with `start_err = 1`.
+   - On the final computation clock edge ($i = M-1, j = M-1, k = M-1$):
+     - Registers the final dot product into `mem_c[M*M - 1]`.
+     - Asserts `host_done = 1` (a one-cycle active-high completion pulse).
+     - Asserts `host_result_available = 1` and deasserts `host_busy = 0`.
+     - Transitions the FSM from `ST_COMP` to `ST_DONE`.
 
 3. **`ST_DONE` (2'b10)**:
-   - Maintains `host_done = 1` for exactly 1 cycle.
-   - Transitions back to `ST_IDLE` on the following clock edge.
-   - Result remains accessible in `mem_c` via synchronous readback while `host_result_available = 1`.
+   - The FSM resides in `ST_DONE` for exactly one cycle while `host_done` remains high.
+   - Host writes remain strictly rejected (`state != ST_IDLE`, `host_write_ack = 0`), ensuring write attempts cannot corrupt matrix storage before the FSM settles.
+   - On the subsequent clock edge, `host_done` deasserts to 0 and the FSM returns to `ST_IDLE`.
+   - Result data in `mem_c` remains valid and accessible for host readback as long as `host_result_available = 1`.
 
 ### Cycle-by-Cycle Computation Latency Formula
 Because every cycle in `ST_COMP` executes 1 productive MAC with zero pipeline stalls or pipeline bubbles:
@@ -208,6 +218,9 @@ The verification testbench [`tb_sequential_gemm.v`](tb_sequential_gemm.v) is ful
   - Rejects unsupported dimensions (`cfg_matrix_dim` = 0, 1, 2, 4, 5, 7) via `start_err = 1`.
   - Rejects premature starts before matrices are fully loaded.
   - Rejects out-of-range write addresses and reads when result is not available.
+  - **Targeted Write Rejection during `ST_COMP`**: Writes attempted during active computation fail to acknowledge (`host_write_ack == 0`) and do not modify matrix memory.
+  - **Targeted Write Rejection during `ST_DONE`**: Writes attempted while the FSM is in `ST_DONE` (`host_busy == 0`, `host_done == 1`) are strictly rejected (`host_write_ack == 0`) without corrupting stored matrices.
+  - **Clean Write Recovery in `ST_IDLE`**: After returning to `ST_IDLE`, valid matrix writes are properly acknowledged (`host_write_ack == 1`) and update storage correctly.
 - **Suite 3: 3×3 GEMM (Positive Operands)**: Validates numerical correctness and verifies $T_{\text{comp}} = 27$ cycles exactly.
 - **Suite 4: 3×3 Signed Boundary Operands**: Tests extreme values ($-128, +127, -1, 0, +1$) and confirms zero data-dependent timing jitter.
 - **Suite 5: 6×6 GEMM (Positive Operands)**: Validates all 36 output elements and verifies $T_{\text{comp}} = 216$ cycles exactly.
@@ -216,14 +229,19 @@ The verification testbench [`tb_sequential_gemm.v`](tb_sequential_gemm.v) is ful
 - **Suite 8: Asynchronous Reset During Active Computation**: Proves mid-flight reset returns cleanly to idle and recovers immediately.
 - **Suite 9: Performance Comparison Table**: Automated reporting of measured latencies and speedups.
 
-### 7.2 Execution Commands
+### 7.2 Execution and Structural Synthesis Commands
 
 To compile and execute the sequential baseline testbench:
 ```bash
 make test-baseline
 ```
 
-To run all Phase II tests (including tiled GEMM, performance analysis, burst interface, phase2 top, and sequential baseline):
+To run baseline structural hierarchy, process lowering, and design rule checking via Yosys:
+```bash
+make synth-check-baseline
+```
+
+To run all Phase II test suites (tiled GEMM, performance analysis, burst interface, phase2 top, and sequential baseline):
 ```bash
 make test-phase2
 ```
@@ -232,7 +250,7 @@ make test-phase2
 ```
 ==================================================================
 SEQUENTIAL BASELINE VERIFICATION SUMMARY:
-  PASSED CHECKS : 598
+  PASSED CHECKS : 636
   FAILED CHECKS : 0
 ==================================================================
 RESULT: ALL SEQUENTIAL BASELINE TESTS AND MEASUREMENTS PASSED!
@@ -243,5 +261,6 @@ RESULT: ALL SEQUENTIAL BASELINE TESTS AND MEASUREMENTS PASSED!
 ## 8. Limitations and Scope
 
 1. **Clock Frequency Assumptions**: Throughput figures in MMAC/s assume a nominal reference frequency of $100.0\text{ MHz}$ ($10.0\text{ ns}$ clock period) for standardized comparison. Physical achievable clock frequencies depend on target FPGA synthesis and place-and-route constraints (addressed in Task 5).
-2. **Dimension Constraints**: The baseline hardware supports runtime configurations of $3 \times 3$ and $6 \times 6$ matrices, matching the supported configurations of the tiled systolic accelerator.
-3. **Host Transport Coupling**: All latency comparisons in Section 5 utilize the standard element-by-element streaming protocol to guarantee fair evaluation under identical interface constraints.
+2. **Structural Checking Scope**: The `synth-check-baseline` target executes non-technology-mapped RTL elaboration, process lowering (`proc`), and structural design-rule checks in Yosys. It validates hierarchy, latch-free sequential logic, and driver consistency, but does not perform FPGA technology mapping, placement, routing, or static timing analysis.
+3. **Dimension Constraints**: The baseline hardware supports runtime configurations of $3 \times 3$ and $6 \times 6$ matrices, matching the supported configurations of the tiled systolic accelerator.
+4. **Host Transport Coupling**: All latency comparisons in Section 5 utilize the standard element-by-element streaming protocol to guarantee fair evaluation under identical interface constraints.

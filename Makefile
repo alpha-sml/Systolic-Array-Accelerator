@@ -16,7 +16,7 @@ BURST_IF_RTL := $(ARRAY_RTL) $(CTRL_RTL) phase2/scalability/tiled_input_buffer.v
 PHASE2_TOP_RTL := $(BURST_IF_RTL) phase2/integration/phase2_top_module.v
 BASELINE_RTL := phase2/baseline/sequential_gemm.v
 
-.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled test-performance test-burst-interface test-phase2-top test-baseline test-phase2 synth-check synth-check-tiled synth-check-phase2-top clean demo
+.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled test-performance test-burst-interface test-phase2-top test-baseline test-phase2 synth-check synth-check-tiled synth-check-phase2-top synth-check-baseline clean demo
 
 test: test-mac test-pe test-array test-controller test-data test-top
 
@@ -87,6 +87,13 @@ synth-check-tiled: $(BUILD_DIR)
 synth-check-phase2-top: $(BUILD_DIR)
 	@if command -v $(YOSYS) >/dev/null 2>&1; then \
 		$(YOSYS) -Q -p 'read_verilog -sv $(PHASE2_TOP_RTL); hierarchy -check -top phase2_top_module; proc; opt; check'; \
+	else \
+		echo "Yosys is not installed; structural check was not run."; \
+	fi
+
+synth-check-baseline: $(BUILD_DIR)
+	@if command -v $(YOSYS) >/dev/null 2>&1; then \
+		$(YOSYS) -Q -p 'read_verilog -sv $(BASELINE_RTL); hierarchy -check -top sequential_gemm; proc; check'; \
 	else \
 		echo "Yosys is not installed; structural check was not run."; \
 	fi
