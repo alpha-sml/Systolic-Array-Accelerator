@@ -165,7 +165,8 @@ The table below summarizes measured simulation cycle counts, computed operationa
 | **Compute PE Utilisation ($\rho_{\text{comp}}$)** | **27.27 %** | **20.00 %** | **21.24 %** |
 | **Active PE Utilisation ($\rho_{\text{active}}$)** | **7.89 %** | **7.14 %** | **10.86 %** |
 | **Seamless E2E PE Utilisation ($\rho_{\text{e2e}}$)** | **7.50 %** | **6.82 %** | **10.76 %** |
-| **Sequential Baseline Speedup** | *Pending (Separate Task)* | *Pending (Separate Task)* | *Pending (Separate Task)* |
+| **Compute Speedup vs. Sequential Baseline** | **2.4545x** | **1.8000x** | **1.9115x** |
+| **Seamless E2E Speedup vs. Sequential Baseline** | **1.4000x** | **1.2727x** | **1.4619x** |
 
 > [!IMPORTANT]
 > **Simulation vs. Physical Hardware Disclaimer**:
@@ -240,8 +241,8 @@ $$\text{Speedup}_{\text{e2e}} = \frac{T_{\text{seq\_e2e}}}{T_{\text{systolic\_e2
   $$\text{Speedup}_{\text{comp}} = \frac{216}{113} \approx \mathbf{1.9115\times}$$
 
 > [!NOTE]
-> **Pending Empirical Comparison Status**:
-> Inspection of `phase2/baseline/` confirms that only `.gitkeep` is currently present. The hardware implementation of the sequential baseline is assigned to a separate team task. To maintain strict modularity, empirical baseline RTL cycle counts remain marked as **Pending (Separate Task)**. Once the baseline RTL is committed, measured RTL cycle counts will populate empirical speedup tables.
+> **Empirical Comparison Completed**:
+> The synthesizable 1-MAC sequential baseline has been implemented in [`phase2/baseline/sequential_gemm.v`](../baseline/sequential_gemm.v) and verified with [`phase2/baseline/tb_sequential_gemm.v`](../baseline/tb_sequential_gemm.v). The measured cycle counts ($T_{\text{comp}} = 27$ cycles for 3×3, $216$ cycles for 6×6) match the analytical predictions with 100% precision. Complete documentation and speedup tables are detailed in [`phase2/baseline/README.md`](../baseline/README.md).
 
 ---
 
