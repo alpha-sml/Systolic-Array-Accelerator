@@ -13,7 +13,7 @@ TOP_RTL := $(ARRAY_RTL) $(CTRL_RTL) $(DATA_RTL) rtl/top_module.v
 TILED_RTL := $(ARRAY_RTL) $(CTRL_RTL) phase2/scalability/matrix_tiling_controller.v phase2/scalability/tiled_input_buffer.v phase2/scalability/partial_result_buffer.v phase2/scalability/tiled_gemm_top.v
 PERF_RTL := $(TOP_RTL) phase2/scalability/matrix_tiling_controller.v phase2/scalability/tiled_input_buffer.v phase2/scalability/partial_result_buffer.v phase2/scalability/tiled_gemm_top.v
 
-.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled test-performance synth-check synth-check-tiled clean demo
+.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled test-performance test-phase2 synth-check synth-check-tiled clean demo
 
 test: test-mac test-pe test-array test-controller test-data test-top
 
@@ -52,6 +52,8 @@ test-tiled: $(BUILD_DIR)
 test-performance: $(BUILD_DIR)
 	$(IVERILOG) $(IVERILOG_FLAGS) -s tb_performance -o $(BUILD_DIR)/tb_performance.vvp $(PERF_RTL) phase2/performance/tb_performance.v
 	$(VVP) $(BUILD_DIR)/tb_performance.vvp
+
+test-phase2: test-tiled test-performance
 
 synth-check: $(BUILD_DIR)
 	@if command -v $(YOSYS) >/dev/null 2>&1; then \
