@@ -12,8 +12,10 @@ DATA_RTL := rtl/input_buffer.v rtl/output_buffer.v rtl/matrix_interface.v
 TOP_RTL := $(ARRAY_RTL) $(CTRL_RTL) $(DATA_RTL) rtl/top_module.v
 TILED_RTL := $(ARRAY_RTL) $(CTRL_RTL) phase2/scalability/matrix_tiling_controller.v phase2/scalability/tiled_input_buffer.v phase2/scalability/partial_result_buffer.v phase2/scalability/tiled_gemm_top.v
 PERF_RTL := $(TOP_RTL) phase2/scalability/matrix_tiling_controller.v phase2/scalability/tiled_input_buffer.v phase2/scalability/partial_result_buffer.v phase2/scalability/tiled_gemm_top.v
+BURST_IF_RTL := $(ARRAY_RTL) $(CTRL_RTL) phase2/scalability/tiled_input_buffer.v phase2/scalability/matrix_tiling_controller.v phase2/scalability/partial_result_buffer.v phase2/interface/burst_matrix_interface.v
+PHASE2_TOP_RTL := $(BURST_IF_RTL) phase2/integration/phase2_top_module.v
 
-.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled test-performance test-phase2 synth-check synth-check-tiled clean demo
+.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled test-performance test-burst-interface test-phase2-top test-phase2 synth-check synth-check-tiled synth-check-phase2-top clean demo
 
 test: test-mac test-pe test-array test-controller test-data test-top
 
@@ -53,7 +55,15 @@ test-performance: $(BUILD_DIR)
 	$(IVERILOG) $(IVERILOG_FLAGS) -s tb_performance -o $(BUILD_DIR)/tb_performance.vvp $(PERF_RTL) phase2/performance/tb_performance.v
 	$(VVP) $(BUILD_DIR)/tb_performance.vvp
 
-test-phase2: test-tiled test-performance
+test-burst-interface: $(BUILD_DIR)
+	$(IVERILOG) $(IVERILOG_FLAGS) -s tb_burst_interface -o $(BUILD_DIR)/tb_burst_interface.vvp $(BURST_IF_RTL) phase2/interface/tb_burst_interface.v
+	$(VVP) $(BUILD_DIR)/tb_burst_interface.vvp
+
+test-phase2-top: $(BUILD_DIR)
+	$(IVERILOG) $(IVERILOG_FLAGS) -s tb_phase2_top -o $(BUILD_DIR)/tb_phase2_top.vvp $(PHASE2_TOP_RTL) phase2/integration/tb_phase2_top.v
+	$(VVP) $(BUILD_DIR)/tb_phase2_top.vvp
+
+test-phase2: test-tiled test-performance test-burst-interface test-phase2-top
 
 synth-check: $(BUILD_DIR)
 	@if command -v $(YOSYS) >/dev/null 2>&1; then \
@@ -65,6 +75,13 @@ synth-check: $(BUILD_DIR)
 synth-check-tiled: $(BUILD_DIR)
 	@if command -v $(YOSYS) >/dev/null 2>&1; then \
 		$(YOSYS) -Q -p 'read_verilog -sv $(TILED_RTL); hierarchy -check -top tiled_gemm_top; proc; check'; \
+	else \
+		echo "Yosys is not installed; structural check was not run."; \
+	fi
+
+synth-check-phase2-top: $(BUILD_DIR)
+	@if command -v $(YOSYS) >/dev/null 2>&1; then \
+		$(YOSYS) -Q -p 'read_verilog -sv $(PHASE2_TOP_RTL); hierarchy -check -top phase2_top_module; proc; opt; check'; \
 	else \
 		echo "Yosys is not installed; structural check was not run."; \
 	fi
