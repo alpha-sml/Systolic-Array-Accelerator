@@ -1,0 +1,93 @@
+========================================================================================
+FPGA RESOURCE UTILIZATION REPORT (YOSYS TECHNOLOGY-MAPPED SYNTHESIS)
+========================================================================================
+Timestamp (UTC): 2026-11-20T12:19:59Z
+Host: Darwin Atharvas-MacBook-Pro-3.local 27.2.0 Darwin Kernel Version 27.2.0: Wed Oct 14 23:43:44 PDT 2026; root:xnu-13432.41.4~25/RELEASE_ARM64_T8122 arm64
+Yosys version: Yosys 0.71+post (git sha1 5628c13240f670b97aaaca3d47940c4afb8ff572, Release, AppleClang clang++ 21.0.0.21000401)
+Icarus Verilog: Icarus Verilog version 13.0 (stable) (v13_0)
+Git commit: ba0ee3b (main)
+Target family (Yosys): xc7
+Target FPGA part: UNSPECIFIED
+Target board: UNSPECIFIED
+
+NOTE: Target FPGA part number and device capacity are UNSPECIFIED in the repository.
+      Available resources and Utilization (%) are marked Unavailable rather than
+      invented. These counts represent post-synthesis mapped primitives before PnR.
+
+----------------------------------------------------------------------------------------
+1. PRIMARY TOP MODULE: phase2_top_module (Xilinx xc7, flattened with I/O buffers)
+----------------------------------------------------------------------------------------
+Resource                           |     Used | Available              | Utilization (%) 
+----------------------------------------------------------------------------------------
+Slice LUTs (LUT1..LUT6)            |    13448 | Unavailable (part unspec) | Unavailable (part unspec)
+  LUT1 / LUT2 / LUT3               | 12/1001/2785 | Unavailable (part unspec) | Unavailable (part unspec)
+  LUT4 / LUT5 / LUT6               | 1359/4708/3583 | Unavailable (part unspec) | Unavailable (part unspec)
+Estimated Logic Cells (Yosys)      |    12435 | Unavailable (part unspec) | Unavailable (part unspec)
+Flip-Flops / Registers (FDCE+FDPE) | 2549 (2546+3) | Unavailable (part unspec) | Unavailable (part unspec)
+DSP Blocks (DSP48E1)               |       19 | Unavailable (part unspec) | Unavailable (part unspec)
+Block RAM (RAMB18E1 + RAMB36E1)    |        0 | Unavailable (part unspec) | Unavailable (part unspec)
+Carry Chains (CARRY4)              |      234 | Unavailable (part unspec) | Unavailable (part unspec)
+Wide Muxes (MUXF7 + MUXF8)         | 121 (99+22) | Unavailable (part unspec) | Unavailable (part unspec)
+Clock Buffers (BUFG)               |        1 | Unavailable (part unspec) | Unavailable (part unspec)
+Inverters (INV)                    |       26 | Unavailable (part unspec) | Unavailable (part unspec)
+Bonded I/O Buffers (IBUF + OBUF)   | 120 (71+49) | Unavailable (part unspec) | Unavailable (part unspec)
+
+----------------------------------------------------------------------------------------
+2. HIERARCHICAL MODULE ATTRIBUTION: phase2_top_module (Xilinx xc7, -noiopad)
+----------------------------------------------------------------------------------------
+Module                       |    LUTs |  LUT % |    FFs | DSP48E1 | CARRY4 | MUXF7/8
+----------------------------------------------------------------------------------------
+partial_result_buffer        |   14911 |  88.2% |   1186 |       5 |    149 |      96
+tiled_input_buffer           |    1405 |   8.3% |    792 |       4 |     40 |      51
+burst_matrix_interface       |     254 |   1.5% |    163 |       0 |     21 |       0
+matrix_tiling_controller     |      31 |   0.2% |     20 |       0 |      1 |       0
+systolic_controller          |      15 |   0.1% |      7 |       0 |      0 |       0
+control_fsm                  |       6 |   0.0% |      2 |       0 |      0 |       0
+processing_element (x9)      |       0 |   0.0% |    144 |       0 |      0 |       0
+mac_unit (x9)                |     288 |   1.7% |    288 |       9 |      0 |       0
+pe_interconnect              |       0 |   0.0% |      0 |       0 |      0 |       0
+systolic_array               |       0 |   0.0% |      0 |       0 |      0 |       0
+phase2_top_module            |       5 |   0.0% |      0 |       0 |      0 |       0
+----------------------------------------------------------------------------------------
+TOTAL (hierarchical -noiopad) |   16915 | 100.0% |   2602 |      18 |    211 |     147
+
+----------------------------------------------------------------------------------------
+3. ARCHITECTURAL COMPARISON (Xilinx xc7, flattened with I/O pads)
+----------------------------------------------------------------------------------------
+Top Module             |    LUTs | Est LCs |    FFs | DSP48E1 |  BRAM | CARRY4 |   IOs
+----------------------------------------------------------------------------------------
+phase2_top_module      |   13448 |   12435 |   2549 |      19 |     0 |    234 |   120
+tiled_gemm_top         |   10702 |   10068 |   2388 |      17 |     0 |    192 |    71
+top_module             |    1145 |    1055 |   1026 |       9 |     0 |     16 |    63
+sequential_gemm        |    1334 |    1121 |   1882 |       1 |     0 |     27 |    71
+
+----------------------------------------------------------------------------------------
+4. CROSS-ARCHITECTURE CHECK: phase2_top_module (Lattice ECP5, synth_ecp5)
+----------------------------------------------------------------------------------------
+  LUT4=46155 | TRELLIS_FF=2549 | MULT18X18D=29 | DP16KD(BRAM)=0 | CCU2C=806 | PFUMX=16057 | L6MUX21=6196
+
+----------------------------------------------------------------------------------------
+5. DSP48E1 ATTRIBUTION & REGISTER CONFIGURATION FINDINGS
+----------------------------------------------------------------------------------------
+  Total DSP48E1 inferred in phase2_top_module (flattened): 19
+  DSP packing origins observed in Yosys log (19 entries):
+    - phase2_top_module.$flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$mul$2320.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.sliceA[0].mul
+    - phase2_top_module.$flatten\u_input_buffer.$phase2/scalability/tiled_input_buffer.v:129$mul$2631.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.sliceA.last
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24864.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.sliceA.last
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24860.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.sliceA.last
+    - phase2_top_module.$flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$mul$2430.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.sliceA.last
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24852
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24820
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24824
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24828
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24832
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24836
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24840
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24844
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24864.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.sliceA[0].mul
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24848
+    - phase2_top_module.$flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$mul$2320.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.sliceA.last
+    - phase2_top_module.$auto$maccmap.cc:308:maccmap$24860.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.sliceA[0].mul
+    - phase2_top_module.$flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$mul$2430.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.sliceA[0].mul
+    - phase2_top_module.$flatten\u_input_buffer.$phase2/scalability/tiled_input_buffer.v:129$mul$2631.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.sliceA[0].mul
+  mac_unit DSP48E1 pipeline registers: AREG=0, BREG=0, CREG=0, MREG=0, PREG=0 (async rst_n forces external FDCE)

@@ -1,0 +1,110 @@
+========================================================================================
+FPGA TIMING STATUS & STRUCTURAL LOGIC-DEPTH ANALYSIS
+========================================================================================
+Timestamp (UTC): 2026-11-20T12:19:59Z
+Host: Darwin Atharvas-MacBook-Pro-3.local 27.2.0 Darwin Kernel Version 27.2.0: Wed Oct 14 23:43:44 PDT 2026; root:xnu-13432.41.4~25/RELEASE_ARM64_T8122 arm64
+Yosys version: Yosys 0.71+post (git sha1 5628c13240f670b97aaaca3d47940c4afb8ff572, Release, AppleClang clang++ 21.0.0.21000401)
+Icarus Verilog: Icarus Verilog version 13.0 (stable) (v13_0)
+Git commit: ba0ee3b (main)
+Target family (Yosys): xc7
+Target FPGA part: UNSPECIFIED
+Target board: UNSPECIFIED
+
+----------------------------------------------------------------------------------------
+1. POST-IMPLEMENTATION TIMING METRICS (STATIC TIMING ANALYSIS)
+----------------------------------------------------------------------------------------
+  Status                 : NOT RUN / UNAVAILABLE
+  Target clock period    : 10.0 ns (100.0 MHz assumed reference only; NOT a closed FPGA constraint)
+  Achieved clock period  : Unavailable (no vendor STA or PnR tool installed)
+  Critical path delay    : Unavailable (pre-placement synthesis has no routing/device timing)
+  Setup slack            : Unavailable
+  Hold slack             : Unavailable
+  Maximum frequency Fmax : Unavailable (cannot be computed without valid post-PnR T_critical)
+
+  Reason: Xilinx Vivado, Intel Quartus, nextpnr, and OpenSTA are not installed, and no
+          target FPGA part / speed grade is specified. Yosys ABC9 internal delay weights
+          are pre-placement heuristics and are NOT used to claim Fmax or timing closure.
+
+----------------------------------------------------------------------------------------
+2. STRUCTURAL COMBINATIONAL LOGIC DEPTH (PRE-PLACEMENT, ZERO ROUTING DELAY)
+----------------------------------------------------------------------------------------
+Top Module             | RTL LTP (stages) | ABC9 LUT Depth (lev) | ABC9 Max-Cut (levB)
+----------------------------------------------------------------------------------------
+phase2_top_module      |               38 |                   15 |                  26
+tiled_gemm_top         |               38 |                   13 |                  27
+top_module             |               12 |                    7 |                  10
+sequential_gemm        |               12 |                    8 |                  20
+
+----------------------------------------------------------------------------------------
+3. LONGEST STRUCTURAL PATH EXCERPTS (Yosys pre-techmap `ltp -noff`)
+----------------------------------------------------------------------------------------
+
+[phase2_top_module] RTL Longest Topological Path (length=38):
+      0: \cfg_matrix_dim [3]
+      1: $flatten\u_burst_interface.$phase2/interface/burst_matrix_interface.v:123$eq$1742_Y (via $flatten\u_burst_interface.$phase2/interface/burst_matrix_interface.v:123$eq$1742)
+      2: $phase2/integration/phase2_top_module.v:83$ternary$946_Y [0] (via $phase2/integration/phase2_top_module.v:83$ternary$946)
+      3: \u_input_buffer.matrix_dim [0] (via $phase2/integration/phase2_top_module.v:82$ternary$947)
+      4: $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$mul$1158_Y [0] (via $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$mul$1202)
+      5: $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$add$1159_Y [0] (via $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$add$1159)
+      6: $flatten\u_partial_buffer.$procmux$20738_CMP (via $flatten\u_partial_buffer.$procmux$6457_CMP0)
+      7: $flatten\u_partial_buffer.$procmux$6421_Y [0] (via $flatten\u_partial_buffer.$procmux$6421)
+      8: $flatten\u_partial_buffer.$procmux$6459_Y [0] (via $flatten\u_partial_buffer.$procmux$6459)
+      9: $flatten\u_partial_buffer.$procmux$6461_Y [0] (via $flatten\u_partial_buffer.$procmux$6461)
+     10: $flatten\u_partial_buffer.$5$mem2reg_rd$\c_mem$phase2/scalability/partial_result_buffer.v:96$959_DATA[31:0]$1174 [0] (via $flatten\u_partial_buffer.$procmux$6463)
+     11: $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:96$add$1175_Y [0] (via $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:96$add$1175)
+  ... (24 intermediate mux/logic stages omitted) ...
+     36: $flatten\u_partial_buffer.$procmux$8212_Y [0] (via $flatten\u_partial_buffer.$procmux$8212)
+     37: $flatten\u_partial_buffer.$procmux$8214_Y [0] (via $flatten\u_partial_buffer.$procmux$8214)
+     38: $flatten\u_partial_buffer.$procmux$8216_Y [0] (via $flatten\u_partial_buffer.$procmux$8216)
+     ff: \u_partial_buffer.c_mem[27] [31] (via $auto$ff.cc:337:slice$23549)
+
+[tiled_gemm_top] RTL Longest Topological Path (length=38):
+      0: \cfg_matrix_dim [3]
+      1: $phase2/scalability/tiled_gemm_top.v:65$eq$810_Y (via $phase2/scalability/tiled_gemm_top.v:65$eq$810)
+      2: $phase2/scalability/tiled_gemm_top.v:65$ternary$811_Y [0] (via $phase2/scalability/tiled_gemm_top.v:65$ternary$811)
+      3: \u_input_buffer.matrix_dim [0] (via $phase2/scalability/tiled_gemm_top.v:64$ternary$812)
+      4: $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$mul$1029_Y [0] (via $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$mul$1073)
+      5: $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$add$1030_Y [0] (via $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:87$add$1030)
+      6: $flatten\u_partial_buffer.$procmux$19730_CMP (via $flatten\u_partial_buffer.$procmux$5449_CMP0)
+      7: $flatten\u_partial_buffer.$procmux$5413_Y [0] (via $flatten\u_partial_buffer.$procmux$5413)
+      8: $flatten\u_partial_buffer.$procmux$5451_Y [0] (via $flatten\u_partial_buffer.$procmux$5451)
+      9: $flatten\u_partial_buffer.$procmux$5453_Y [0] (via $flatten\u_partial_buffer.$procmux$5453)
+     10: $flatten\u_partial_buffer.$5$mem2reg_rd$\c_mem$phase2/scalability/partial_result_buffer.v:96$830_DATA[31:0]$1045 [0] (via $flatten\u_partial_buffer.$procmux$5455)
+     11: $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:96$add$1046_Y [0] (via $flatten\u_partial_buffer.$phase2/scalability/partial_result_buffer.v:96$add$1046)
+  ... (24 intermediate mux/logic stages omitted) ...
+     36: $flatten\u_partial_buffer.$procmux$6547_Y [0] (via $flatten\u_partial_buffer.$procmux$6547)
+     37: $flatten\u_partial_buffer.$procmux$6549_Y [0] (via $flatten\u_partial_buffer.$procmux$6549)
+     38: $flatten\u_partial_buffer.$procmux$6551_Y [0] (via $flatten\u_partial_buffer.$procmux$6551)
+     ff: \u_partial_buffer.c_mem[30] [31] (via $auto$ff.cc:337:slice$22079)
+
+[top_module] RTL Longest Topological Path (length=12):
+      0: 1'0
+      1: \u_controller.state_compute (via $flatten\u_controller.\u_fsm.$procmux$1228_CMP0)
+      2: \u_input_buffer.cycle_count [0] (via $flatten\u_controller.$rtl/systolic_controller.v:185$ternary$393)
+      3: $flatten\u_input_buffer.$rtl/input_buffer.v:124$sub$625_Y [0] (via $flatten\u_input_buffer.$rtl/input_buffer.v:124$sub$625)
+      4: $flatten\u_input_buffer.$rtl/input_buffer.v:136$mul$655_Y [0] (via $flatten\u_input_buffer.$rtl/input_buffer.v:136$mul$655)
+      5: $flatten\u_input_buffer.$rtl/input_buffer.v:136$add$656_Y [0] (via $flatten\u_input_buffer.$rtl/input_buffer.v:136$add$656)
+      6: $flatten\u_input_buffer.$rtl/input_buffer.v:136$shiftx$659_Y [0] (via $flatten\u_input_buffer.$rtl/input_buffer.v:136$shiftx$659)
+      7: $flatten\u_input_buffer.$4\b_north_comb[23:16] [0] (via $flatten\u_input_buffer.$procmux$753)
+      8: \u_array.gen_row[0].gen_col[2].u_pe.b_in [0] (via $flatten\u_input_buffer.$procmux$692)
+      9: \u_array.gen_row[0].gen_col[2].u_pe.u_mac.product [0] (via $flatten\u_array.\gen_row[0].gen_col[2].u_pe.\u_mac.$rtl/mac_unit.v:17$mul$343)
+     10: $flatten\u_array.\gen_row[0].gen_col[2].u_pe.\u_mac.$rtl/mac_unit.v:25$add$346_Y [0] (via $flatten\u_array.\gen_row[0].gen_col[2].u_pe.\u_mac.$rtl/mac_unit.v:25$add$346)
+     11: $flatten\u_array.\gen_row[0].gen_col[2].u_pe.\u_mac.$procmux$1296_Y [0] (via $flatten\u_array.\gen_row[0].gen_col[2].u_pe.\u_mac.$procmux$1296)
+     12: $flatten\u_array.\gen_row[0].gen_col[2].u_pe.\u_mac.$0\acc[31:0] [0] (via $flatten\u_array.\gen_row[0].gen_col[2].u_pe.\u_mac.$procmux$1299)
+     ff: \u_array.gen_row[0].gen_col[2].u_pe.u_mac.acc [31] (via $auto$ff.cc:337:slice$1866)
+
+[sequential_gemm] RTL Longest Topological Path (length=12):
+      0: \cfg_matrix_dim [3]
+      1: $phase2/baseline/sequential_gemm.v:72$eq$11_Y (via $phase2/baseline/sequential_gemm.v:90$eq$20)
+      2: $2\expected_mask[35:0] [0] (via $procmux$3313)
+      3: \expected_mask [0] (via $procmux$3319)
+      4: $phase2/baseline/sequential_gemm.v:97$and$21_Y [0] (via $phase2/baseline/sequential_gemm.v:97$and$21)
+      5: $phase2/baseline/sequential_gemm.v:97$eq$22_Y (via $phase2/baseline/sequential_gemm.v:97$eq$22)
+      6: $phase2/baseline/sequential_gemm.v:96$logic_and$23_Y (via $phase2/baseline/sequential_gemm.v:96$logic_and$23)
+      7: \matrices_ready (via $phase2/baseline/sequential_gemm.v:96$logic_and$26)
+      8: $phase2/baseline/sequential_gemm.v:174$logic_not$114_Y (via $phase2/baseline/sequential_gemm.v:174$logic_not$114)
+      9: $phase2/baseline/sequential_gemm.v:174$logic_or$115_Y (via $phase2/baseline/sequential_gemm.v:174$logic_or$115)
+     10: $procmux$3288_Y (via $procmux$3288)
+     11: $procmux$3290_Y (via $procmux$3290)
+     12: $0\host_result_available[0:0] (via $procmux$3285)
+     ff: \host_result_available (via $auto$ff.cc:337:slice$4010)
