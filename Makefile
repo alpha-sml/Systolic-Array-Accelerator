@@ -4,6 +4,8 @@ YOSYS ?= yosys
 BUILD_DIR := build
 IVERILOG_FLAGS := -g2012 -Wall
 
+-include phase2/fpga/fpga_config.mk
+
 MAC_RTL := rtl/mac_unit.v
 PE_RTL := $(MAC_RTL) rtl/processing_element.v
 ARRAY_RTL := $(PE_RTL) rtl/pe_interconnect.v rtl/systolic_array.v
@@ -16,7 +18,7 @@ BURST_IF_RTL := $(ARRAY_RTL) $(CTRL_RTL) phase2/scalability/tiled_input_buffer.v
 PHASE2_TOP_RTL := $(BURST_IF_RTL) phase2/integration/phase2_top_module.v
 BASELINE_RTL := phase2/baseline/sequential_gemm.v
 
-.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled test-performance test-burst-interface test-phase2-top test-baseline test-phase2 synth-check synth-check-tiled synth-check-phase2-top synth-check-baseline clean demo
+.PHONY: test test-mac test-pe test-array test-controller test-data test-top test-tiled test-performance test-burst-interface test-phase2-top test-baseline test-phase2 synth-check synth-check-tiled synth-check-phase2-top synth-check-baseline synth-fpga fpga-utilization fpga-path-analysis fpga-timing fpga-bitstream clean demo
 
 test: test-mac test-pe test-array test-controller test-data test-top
 
@@ -96,6 +98,49 @@ synth-check-baseline: $(BUILD_DIR)
 		$(YOSYS) -Q -p 'read_verilog -sv $(BASELINE_RTL); hierarchy -check -top sequential_gemm; proc; check'; \
 	else \
 		echo "Yosys is not installed; structural check was not run."; \
+	fi
+
+synth-fpga: $(BUILD_DIR)
+	@YOSYS="$(YOSYS)" FPGA_TARGET_PART="$(FPGA_TARGET_PART)" FPGA_BOARD="$(FPGA_BOARD)" FPGA_CONSTRAINTS="$(FPGA_CONSTRAINTS)" \
+		bash phase2/fpga/scripts/check_fpga_env.sh synth
+	@YOSYS="$(YOSYS)" FPGA_TARGET_PART="$(FPGA_TARGET_PART)" FPGA_BOARD="$(FPGA_BOARD)" \
+		bash phase2/fpga/scripts/run_yosys_synth.sh --build-dir "$(FPGA_BUILD_DIR)" --family "$(FPGA_SYNTH_FAMILY)" --mode synth
+
+fpga-utilization: synth-fpga
+	@python3 phase2/fpga/scripts/parse_yosys_reports.py --build-dir "$(FPGA_BUILD_DIR)" --family "$(FPGA_SYNTH_FAMILY)" --print utilization
+
+fpga-path-analysis: $(BUILD_DIR)
+	@YOSYS="$(YOSYS)" FPGA_TARGET_PART="$(FPGA_TARGET_PART)" FPGA_BOARD="$(FPGA_BOARD)" FPGA_CONSTRAINTS="$(FPGA_CONSTRAINTS)" \
+		bash phase2/fpga/scripts/check_fpga_env.sh synth
+	@if [ -f "$(FPGA_BUILD_DIR)/phase2_top_module_$(FPGA_SYNTH_FAMILY)_flat.log" ]; then \
+		YOSYS="$(YOSYS)" FPGA_TARGET_PART="$(FPGA_TARGET_PART)" FPGA_BOARD="$(FPGA_BOARD)" \
+			bash phase2/fpga/scripts/run_yosys_synth.sh --build-dir "$(FPGA_BUILD_DIR)" --family "$(FPGA_SYNTH_FAMILY)" --mode path; \
+	else \
+		YOSYS="$(YOSYS)" FPGA_TARGET_PART="$(FPGA_TARGET_PART)" FPGA_BOARD="$(FPGA_BOARD)" \
+			bash phase2/fpga/scripts/run_yosys_synth.sh --build-dir "$(FPGA_BUILD_DIR)" --family "$(FPGA_SYNTH_FAMILY)" --mode all; \
+	fi
+	@python3 phase2/fpga/scripts/parse_yosys_reports.py --build-dir "$(FPGA_BUILD_DIR)" --family "$(FPGA_SYNTH_FAMILY)" --print timing
+
+fpga-timing:
+	@YOSYS="$(YOSYS)" FPGA_TARGET_PART="$(FPGA_TARGET_PART)" FPGA_BOARD="$(FPGA_BOARD)" FPGA_CONSTRAINTS="$(FPGA_CONSTRAINTS)" \
+		bash phase2/fpga/scripts/check_fpga_env.sh timing
+	@if command -v vivado >/dev/null 2>&1; then \
+		vivado -mode batch -source phase2/fpga/scripts/vivado_impl_template.tcl \
+			-tclargs timing "$(FPGA_TARGET_PART)" "$(FPGA_CONSTRAINTS)" "$(FPGA_BUILD_DIR)/vivado"; \
+	else \
+		echo "ERROR: Supported STA backend invocation is configured for Vivado; detected non-Vivado tool requires manual project setup." >&2; \
+		exit 1; \
+	fi
+
+fpga-bitstream:
+	@YOSYS="$(YOSYS)" FPGA_TARGET_PART="$(FPGA_TARGET_PART)" FPGA_BOARD="$(FPGA_BOARD)" FPGA_CONSTRAINTS="$(FPGA_CONSTRAINTS)" \
+		bash phase2/fpga/scripts/check_fpga_env.sh bitstream
+	@if command -v vivado >/dev/null 2>&1; then \
+		vivado -mode batch -source phase2/fpga/scripts/vivado_impl_template.tcl \
+			-tclargs bitstream "$(FPGA_TARGET_PART)" "$(FPGA_CONSTRAINTS)" "$(FPGA_BUILD_DIR)/vivado"; \
+	else \
+		echo "ERROR: Supported bitstream backend invocation is configured for Vivado; detected non-Vivado tool requires manual project setup." >&2; \
+		exit 1; \
 	fi
 
 $(BUILD_DIR):
