@@ -1,303 +1,255 @@
 # Systolic Array Matrix Multiplication Accelerator
 
-This repository contains a synthesizable, parameterized systolic-array
-accelerator for signed matrix multiplication. The verified default system is
-a 3x3 output-stationary array with 8-bit signed inputs and 32-bit signed
-accumulators.
+A synthesizable, parameterized **3×3 Output-Stationary Systolic Array Matrix Multiplication Accelerator** in Verilog HDL, developed as a B.Tech Modern Computer Architecture (MCA) project with optional tiled matrix multiplication, burst host interface, sequential baseline comparison, and Yosys FPGA synthesis evaluation.
 
-## Deliverables
+---
 
-### Phase I Deliverables
+## 1. Project Overview
 
-- Project Report: [View Phase I Report](report/report.pdf)
-- Project Video: [Watch Phase I Presentation](https://drive.google.com/file/d/1x2GeWZgQnMK2wWIYd1ib1YpxJbkEby2q/view?usp=sharing)
+Dense matrix multiplication $C = A \times B$ is compute-intensive ($N^3$ multiply-accumulate operations on $N^2$ result elements), making conventional sequential processors bottlenecked by repeated operand fetches and limited arithmetic units.
 
-## Architecture
+This project implements a **2D output-stationary systolic array accelerator** in synthesizable Verilog HDL (`top_module`). Processing elements (PEs) remain stationary on individual accumulator elements $C[i][j]$ while signed 8-bit matrix operands $A$ and $B$ stream rhythmically eastward and southward across registered neighbor links, achieving deterministic parallel execution without global operand broadcast buses.
 
-The MAC unit performs signed multiply-accumulate operations inside each
-processing element. Processing elements register A operands eastward and B
-operands southward. The interconnect routes these registered links across the
-array. The controller sequences loading, computation, and result capture.
-The input buffer stores matrices and generates the skewed boundary streams;
-the output buffer snapshots the completed accumulators and provides indexed
-host readback.
+The repository keeps the **3×3 core accelerator** as the primary, self-contained design and organizes additional scalability, host-interface, baseline-benchmarking, and FPGA characterization work cleanly as optional extensions.
 
-### System architecture
+---
+
+## 2. Project Objectives
+
+- Implement a 2D mesh of **processing elements (PEs)** with local neighbor operand registration.
+- Implement signed **multiply-accumulate (MAC)** arithmetic units with full-precision products and 32-bit accumulators.
+- Demonstrate rhythmic **systolic data movement** across row and column boundaries via skewed input streams.
+- Perform deterministic signed **3×3 matrix multiplication** end-to-end through a verified host interface.
+- Evaluate **latency and throughput** across load, compute, readback, and end-to-end boundaries.
+- Compare systolic acceleration against a genuinely **sequential single-MAC GEMM baseline**.
+- Evaluate **FPGA resource utilization** and pre-placement structural logic depth using available synthesis tools.
+
+---
+
+## 3. System Architecture
+
+The primary accelerator (`top_module`, [`rtl/core/top_module.v`](rtl/core/top_module.v)) separates the compute core (`rtl/core/`) from data management (`rtl/interface/`):
+
+- **Processing Elements (`processing_element`):** Register incoming `A` operands eastward and `B` operands southward on `compute_en`, while feeding current inputs combinationally into their local MAC unit.
+- **MAC Units (`mac_unit`):** Multiply two 8-bit signed operands (`16`-bit full product) and accumulate into a `32`-bit signed register (`acc`), with active-low async `rst_n` and synchronous `clr` priority over `en`.
+- **PE Interconnect (`pe_interconnect`) & Array (`systolic_array`):** Structural $3 \times 3$ grid connecting west/north skewed inputs and purely registered PE-to-PE links.
+- **Systolic Controller (`systolic_controller`, `control_fsm`):** Control-only 4-state Moore FSM (`IDLE` → `LOAD` → `COMPUTE` → `DONE`) with start rising-edge lockout.
+- **Input Buffer (`input_buffer`):** Stores $3 \times 3$ matrices `A` and `B`, tracks per-element readiness (`matrices_ready`), stages rows/columns during `LOAD`, and generates diagonal skewed boundary streams during `COMPUTE`.
+- **Output Buffer (`output_buffer`):** Snapshots all 9 PE accumulators on `result_valid` and provides synchronous indexed readback (`read_valid`).
+- **Matrix Interface (`matrix_interface`):** Qualifies host writes, start pulses, invalidations, and result readback.
 
 ```mermaid
 flowchart TD
-    HOST["Host processor"]
-    MI["Matrix interface<br/>(matrix_interface)"]
-    IB["Input buffer<br/>(input_buffer)"]
-    SC["Systolic controller<br/>(systolic_controller)"]
-    SA["Systolic array (N×N PEs)<br/>(systolic_array)"]
-    OB["Output buffer<br/>(output_buffer)"]
+    HOST["Host Testbench / Processor"]
+    MI["Matrix Interface<br/>(matrix_interface)"]
+    IB["Input Buffer<br/>(input_buffer)"]
+    SC["Systolic Controller<br/>(systolic_controller + control_fsm)"]
+    SA["3x3 Systolic Array<br/>(systolic_array: 9 PEs + interconnect)"]
+    OB["Output Buffer<br/>(output_buffer)"]
 
-    %% Data Paths (Solid lines)
-    HOST -->|writes, reads and start requests| MI
+    HOST -->|writes, reads, host_start| MI
     MI -->|accepted writes| IB
-    IB -->|skewed A and B operands| SA
-    SA -->|accumulator plane| OB
-    OB -->|result readback| MI
-    MI -->|read response| HOST
+    IB -->|skewed a_west, b_north| SA
+    SA -->|acc_out plane| OB
+    OB -->|indexed readback| MI
+    MI -->|host_read_data, status| HOST
 
-    %% Control & Status Paths (Dashed lines)
     MI -.->|start| SC
-    SC -.->|status| MI
-    SC -.->|load_en, load_idx| IB
-    SC -.->|compute_en, clear| SA
+    SC -.->|idle, busy, done| MI
+    SC -.->|load_en, load_idx, compute_en, cycle_count| IB
+    SC -.->|compute_en, array_clear| SA
     SC -.->|result_valid| OB
 ```
-
-The matrix interface qualifies host requests and connects the host-facing
-control protocol to the controller and data buffers. As shown above, the
-systolic controller is a control-only unit with no data ports: it sequences the
-array, the buffers, and the interface through dedicated control strobes.
-Processing elements and interconnect wiring are internal to `systolic_array`.
-
-### Processing-element dataflow
-
-```mermaid
-flowchart LR
-    A[A input] --> MAC[MAC unit]
-    B[B input] --> MAC
-    A --> AR[A register]
-    AR -->|eastward A propagation| AE[A output]
-    B --> BR[B register]
-    BR -->|southward B propagation| BS[B output]
-    MAC --> ACC[Accumulator register]
-
-    CLK[Clock] --> AR
-    CLK --> BR
-    CLK --> MAC
-    RST[Active-low reset] --> AR
-    RST --> BR
-    RST --> MAC
-    EN[Compute enable] --> AR
-    EN --> BR
-    EN --> MAC
-```
-
-Each processing element registers operands for neighbor propagation while
-the MAC unit accumulates the product into the output-stationary accumulator.
-
-### Controller states
 
 ```mermaid
 stateDiagram-v2
     [*] --> IDLE
-    IDLE --> LOAD: valid start rising edge
-    LOAD --> COMPUTE: after N load cycles
-    COMPUTE --> DONE: after 3N-2 compute cycles
-    DONE --> IDLE: result capture complete
-
-    note right of IDLE
-        Wait for a qualified start request.
-    end note
-    note right of LOAD
-        Stage one A row and one B column per cycle.
-    end note
-    note right of COMPUTE
-        Drive the seven-cycle skewed schedule for N=3.
-    end note
-    note right of DONE
-        Assert result valid for one capture cycle.
-    end note
+    IDLE --> LOAD: qualified host_start rising edge
+    LOAD --> COMPUTE: N = 3 load cycles (array_clear on last beat)
+    COMPUTE --> DONE: 3N - 2 = 7 skewed compute cycles
+    DONE --> IDLE: 1 capture cycle (result_valid = 1)
 ```
 
-## Design configuration
+---
 
-- Array: 3x3 by default.
-- Input operands: 8-bit signed two's-complement values.
-- Product: 16-bit signed multiplication result.
-- Accumulators: 32-bit signed values.
-- Dataflow: output-stationary.
-- Array core: parameterized by array size and data/accumulator widths.
+## 4. Phase I — Core Systolic Array Implementation
 
-The integrated top-level verification targets the default configuration.
-The lower-level array testbench also exercises a 2x2 parameterization.
+Phase I forms the foundational MCA B.Tech project documented in [`report/report.pdf`](report/report.pdf) and [`docs/architecture/core_architecture.md`](docs/architecture/core_architecture.md).
 
-## Data movement and timing
+- **Verified Default Configuration:** $3 \times 3$ output-stationary array, 8-bit signed two's-complement operands, 32-bit signed accumulators ($T_{\text{ctrl}} = 4N - 1 = 11$ cycles: `LOAD=3`, `COMPUTE=7`, `DONE=1`).
+- **Core 3×3 Demonstration Flow (`make demo`):**
+  1. Reset the accelerator (`rst_n`).
+  2. Load two $3 \times 3$ signed matrices (`A` and `B`) via row-major writes (`18` write beats).
+  3. Assert `host_start` (`start_ack` acknowledges).
+  4. Propagate skewed operands through the 9 PEs (`3` load + `7` compute + `1` capture cycles).
+  5. Read back the captured $3 \times 3$ output matrix `C` (`9` read beats).
+  6. Compare every output element against an independent software reference calculation.
+- **Core Verification (`make test-core`):** All 6 Phase I testbenches (`tb_mac_unit`, `tb_processing_element`, `tb_systolic_array`, `tb_systolic_controller`, `tb_data_management`, `tb_top_module`) pass with **376 counted checks** (0 failures) plus the **94-cycle** cycle-accurate controller suite, including a parameterized $2 \times 2$ array verification.
 
-Host matrix addresses are row-major:
-`address = row * ARRAY_SIZE + column`.
+---
 
-During LOAD, one A row and one B column are staged per cycle. During COMPUTE,
-the input buffer drives only valid skewed operands:
+## 5. Phase II — Extensions and Performance Evaluation
+
+Phase II adds optional scalability, interface, benchmarking, and FPGA characterization extensions while leaving the Phase I core RTL (`rtl/core/`, `rtl/interface/`) unmodified. See [`docs/architecture/extensions.md`](docs/architecture/extensions.md) and [`docs/project/phase_history.md`](docs/project/phase_history.md) for details.
+
+- **Extension A — Tiled Matrix Multiplication (Optional):**
+  [`tiled_gemm_top.v`](rtl/extensions/tiled_gemm_top.v), [`matrix_tiling_controller.v`](rtl/extensions/matrix_tiling_controller.v), [`tiled_input_buffer.v`](rtl/extensions/tiled_input_buffer.v), and [`partial_result_buffer.v`](rtl/extensions/partial_result_buffer.v) support **3×3** (`1` tile) and **6×6** (`8` tiles) matrix multiplication on the unmodified 3×3 systolic array (`1,164` checks passed).
+- **Extension B — Advanced Burst Host Interface (Optional):**
+  [`burst_matrix_interface.v`](rtl/extensions/burst_matrix_interface.v) and integrated [`integrated_gemm_top.v`](rtl/extensions/integrated_gemm_top.v) add streaming and 32-bit packed-word bursts (`4` elements/word), error codes, and a 2-stage lossless readback skid buffer (`215` + `808` checks passed).
+- **Extension C — Sequential GEMM Baseline:**
+  [`sequential_gemm.v`](rtl/baseline/sequential_gemm.v) implements a single-MAC sequential baseline ($T_{\text{comp}} = M^3$) under identical operand precision and host semantics (`636` checks passed).
+- **Performance Comparison:**
+  [`tb_performance.v`](testbench/extensions/tb_performance.v) and [`docs/performance/performance_analysis.md`](docs/performance/performance_analysis.md) quantify cycle latency, MAC throughput, and sequential speedup across 3×3 and 6×6 workloads (`240` checks passed).
+- **FPGA Evaluation:**
+  Technology-mapped Yosys synthesis (`xc7` and `ecp5`), hierarchical resource attribution, and structural logic-depth analysis in [`fpga/`](fpga/README.md).
+
+---
+
+## 6. Performance Results
+
+Verified RTL simulation cycle counts across the primary 3×3 architecture and optional 6×6 extension:
+
+| Architecture | Matrix | Compute cycles | End-to-end cycles |
+|---|---|---:|---:|
+| Sequential | 3×3 | 27 | 56 |
+| Standalone systolic | 3×3 | 11 | 40 |
+| Tiled systolic | 3×3 | 15 | 44 |
+| Sequential | 6×6 | 216 | 326 |
+| Tiled systolic | 6×6 | 113 | 223 |
+
+- **3×3 Core Speedup:** The standalone 3×3 systolic array cuts compute latency from 27 to 11 cycles (**2.4545×** compute speedup) and seamless end-to-end latency from 56 to 40 cycles (**1.4000×** E2E speedup). Single-element I/O transport accounts for 27 of 38 active cycles (71.1%).
+- **6×6 Tiled Speedup (Optional Extension):** Multi-tile execution cuts compute latency from 216 to 113 cycles (**1.9115×** compute speedup) and seamless E2E latency from 326 to 223 cycles (**1.4619×** E2E speedup), amortizing I/O overhead (`0.9686` vs. `0.6136` E2E MACs/cycle).
+- **Reference Clock Scope:** Throughput figures (`245.45` MMAC/s 3×3 standalone compute; `191.15` MMAC/s 6×6 tiled compute) reported in [`docs/performance/performance_analysis.md`](docs/performance/performance_analysis.md) assume a nominal **100.0 MHz** simulation reference clock and are **not** measured FPGA frequencies.
+
+---
+
+## 7. FPGA Evaluation
+
+Open-source technology-mapped synthesis (`Yosys 0.71+post`, `synth_xilinx -family xc7`, flattened with I/O pads) yielded the following pre-placement primitive counts:
+
+| Top Module | Slice LUTs | Flip-Flops | `DSP48E1` | BRAM | `CARRY4` | I/Os |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `top_module` (Core 3×3) | **1,145** | **1,026** | **9** | 0 | 16 | 63 |
+| `sequential_gemm` (Baseline) | 1,351 | 1,882 | 1 | 0 | 27 | 71 |
+| `tiled_gemm_top` (Tiled Ext.) | 10,698 | 2,388 | 17 | 0 | 192 | 71 |
+| `integrated_gemm_top` (Integrated Ext.) | 12,919 | 2,549 | 19 | 0 | 234 | 120 |
+
+- **Key Resource Findings:** The 3×3 core (`top_module`) is compact (`1,145` LUTs, `9` `DSP48E1`). In the integrated extension (`integrated_gemm_top`), `partial_result_buffer` accounts for `88.2%` of hierarchical LUTs (`14,911`) due to 9-way parallel dynamic-index read-modify-write muxes, `integer * matrix_dim` index math infers `10` extra `DSP48E1` slices, and async `rst_n` `for`-loop resets prevent BRAM inference (`0` BRAM).
+- **Important Limitations:** Because no target FPGA part or board is specified in the project and vendor PnR/STA tools (`Vivado`, `Quartus`, `nextpnr`) and FPGA hardware are unavailable in this environment, **vendor synthesis, place-and-route, post-implementation $F_{\max}$, bitstream generation, and physical FPGA hardware testing were NOT RUN**.
+
+Full reports and details: [`fpga/README.md`](fpga/README.md) and [`fpga/RESULTS_SUMMARY.md`](fpga/RESULTS_SUMMARY.md).
+
+---
+
+## 8. Repository Structure
 
 ```text
-a_west[i]  = A[i][cycle_count - i]
-b_north[j] = B[cycle_count - j][j]
-```
-
-Values outside the matrix bounds are zero. A operands move eastward and B
-operands move southward through registered processing-element links.
-
-For an N x N array:
-
-- LOAD lasts N cycles.
-- COMPUTE lasts 3N - 2 cycles.
-- DONE lasts one cycle while the result is captured.
-
-For the verified 3x3 system, the schedule is LOAD=3 cycles,
-COMPUTE=7 cycles, and DONE=1 cycle. The final LOAD beat asserts the
-accumulator clear; computation then proceeds without an additional pipeline
-stage.
-
-## Host interface
-
-The top-level `top_module` provides:
-
-- Active-low asynchronous reset and clock.
-- Matrix write enable, A/B selection, row-major address, data, and
-  write acknowledgement.
-- Matrix readiness, ready, busy, done, start acknowledgement, and start
-  error status.
-- Start edge detection with reset lockout and held-high suppression.
-- Result availability and synchronous indexed result readback.
-
-Writes are accepted only while the controller is idle and the address is
-valid. A start is accepted only when both matrices are complete and the
-controller is idle. Invalid starts and writes are rejected. Reads before a
-valid result or at an invalid address do not assert `read_valid`.
-
-## Repository structure
-
-```text
-.
-├── .gitignore
-├── Makefile
+Systolic-Array-Accelerator/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                 # Automated simulation, lint & Yosys synthesis CI
 ├── README.md
-├── rtl
-│   ├── mac_unit.v
-│   ├── processing_element.v
-│   ├── pe_interconnect.v
-│   ├── systolic_array.v
-│   ├── control_fsm.v
-│   ├── systolic_controller.v
-│   ├── input_buffer.v
-│   ├── output_buffer.v
-│   ├── matrix_interface.v
-│   └── top_module.v
-├── testbench
-│   ├── tb_mac_unit.v
-│   ├── tb_processing_element.v
-│   ├── tb_systolic_array.v
-│   ├── tb_systolic_controller.v
-│   ├── tb_data_management.v
-│   ├── tb_top_module.v
-│   └── tb_prototype_demo.v
-└── build
+├── Makefile
+├── .gitignore
+├── rtl/
+│   ├── core/                    # Phase I core 3x3 systolic array & controller
+│   │   ├── mac_unit.v
+│   │   ├── processing_element.v
+│   │   ├── pe_interconnect.v
+│   │   ├── systolic_array.v
+│   │   ├── control_fsm.v
+│   │   ├── systolic_controller.v
+│   │   └── top_module.v
+│   ├── interface/               # Phase I buffers & host interface
+│   │   ├── input_buffer.v
+│   │   ├── output_buffer.v
+│   │   └── matrix_interface.v
+│   ├── extensions/              # Optional Phase II tiling & burst extensions
+│   │   ├── matrix_tiling_controller.v
+│   │   ├── tiled_input_buffer.v
+│   │   ├── partial_result_buffer.v
+│   │   ├── tiled_gemm_top.v
+│   │   ├── burst_matrix_interface.v
+│   │   └── integrated_gemm_top.v
+│   └── baseline/                # Sequential single-MAC reference baseline
+│       └── sequential_gemm.v
+├── testbench/
+│   ├── core/                    # Core unit, top-level & 3x3 demo testbenches
+│   ├── interface/               # Data-management subsystem testbench
+│   ├── extensions/              # Tiled, burst, integration & performance testbenches
+│   └── baseline/                # Sequential baseline testbench
+├── fpga/                        # Yosys FPGA synthesis scripts & reports
+│   ├── README.md
+│   ├── RESULTS_SUMMARY.md
+│   ├── fpga_config.mk
+│   ├── scripts/
+│   └── reports/
+├── docs/
+│   ├── architecture/            # Core & extension architecture documentation
+│   ├── performance/             # Latency, throughput & speedup analysis
+│   └── project/                 # Phase I / Phase II history & layout mapping
+├── report/
+│   └── report.pdf               # Phase I IEEE project report
+└── build/                       # Generated simulation/synthesis artifacts (gitignored)
 ```
 
-`build/` is created by the Makefile for generated simulation executables,
-logs, and waveforms. Its generated contents are ignored by Git; an empty
-`build/` directory is not tracked in a fresh clone.
+---
 
-## Requirements
+## 9. Requirements and Tools
 
-- Icarus Verilog with `vvp`.
-- Yosys for structural RTL checking.
-- GNU Make.
+- **Simulation (Required):** Icarus Verilog (`iverilog` with `-g2012 -Wall` and `vvp`), GNU Make.
+- **RTL Structural & Open-Source FPGA Synthesis (Optional):** Yosys (`yosys` 0.71+ with `yosys-abc`), Python 3.
+- **Vendor Implementation & Board Testing (Optional, Not Installed Here):** Xilinx Vivado / Intel Quartus / `nextpnr`, official board constraint file (`.xdc`/`.sdc`), and a physical FPGA board.
 
-## Build and simulation
+---
 
-Run the prototype demonstration:
+## 10. How to Run
 
-```sh
+```bash
+# 1. Core 3x3 systolic array demonstration
 make demo
-```
 
-Run the complete regression:
+# 2. Core Phase I tests (MAC, PE, array, controller, data interface, top_module)
+make test-core
 
-```sh
+# 3. Optional extension tests (tiling, burst interface, integrated_gemm_top, performance)
+make test-extensions
+
+# 4. Sequential GEMM baseline tests
+make test-baseline
+
+# 5. Complete functional regression suite (core + extensions + baseline)
 make test
-```
 
-Run individual suites:
-
-```sh
-make test-mac
-make test-pe
-make test-array
-make test-controller
-make test-data
-make test-top
-```
-
-Run the integrated structural check:
-
-```sh
+# 6. Structural RTL checks & Yosys FPGA evaluation
 make synth-check
-```
+make synth-fpga
+make fpga-utilization
+make fpga-path-analysis
 
-Remove generated outputs:
-
-```sh
+# Clean generated build artifacts
 make clean
 ```
 
-## Verification results
+Additional structural targets: `make synth-check-tiled`, `make synth-check-integrated`, `make synth-check-baseline`. Vendor STA/bitstream targets (`make fpga-timing`, `make fpga-bitstream`) report explicit `NOT RUN` diagnostics when vendor tools or target device/constraints are absent.
 
-The verified regression results are:
+---
 
-- MAC unit: 32 checks passed.
-- Processing element: 26 checks passed.
-- Systolic array: 77 checks passed.
-- Controller: pass; LOAD=3 and COMPUTE=7 for the default system.
-- Data management: 80 passed, 0 failed.
-- Integrated top-level: 161 checks passed, 0 failed.
+## 11. Project Deliverables
 
-The integrated testbench independently calculates and reads back both
-positive and signed matrix products, and checks invalid accesses, back-to-back
-operations, held-high starts, and reset during computation.
+- **IEEE Project Report (Phase I):** [View Project Report](report/report.pdf)
+- **Demonstration Video (Phase I):** [Watch Presentation Video](https://drive.google.com/file/d/1x2GeWZgQnMK2wWIYd1ib1YpxJbkEby2q/view?usp=sharing)
+- **Core Architecture Documentation:** [`docs/architecture/core_architecture.md`](docs/architecture/core_architecture.md)
+- **Extension Architecture Documentation:** [`docs/architecture/extensions.md`](docs/architecture/extensions.md)
+- **Performance & Baseline Analysis:** [`docs/performance/performance_analysis.md`](docs/performance/performance_analysis.md)
+- **Phase History & Layout Map:** [`docs/project/phase_history.md`](docs/project/phase_history.md)
+- **FPGA Evaluation Reports:** [`fpga/README.md`](fpga/README.md) | [`fpga/RESULTS_SUMMARY.md`](fpga/RESULTS_SUMMARY.md)
 
-## Example matrix multiplication
+---
 
-```text
-A =              B =
-1 2 3            9 8 7
-4 5 6            6 5 4
-7 8 9            3 2 1
-```
+## 12. Limitations and Future Work
 
-The expected result is:
-
-```text
-C =
-30  24  18
-84  69  54
-138 114 90
-```
-
-The integrated verification also covers:
-
-```text
-A =              B =
- 2 -1  3          1  2 -1
- 0  4 -2         -2  0  3
--3  5  1          4 -1  2
-```
-
-with expected result:
-
-```text
- 16  1  1
--16  2  8
- -9 -7 20
-```
-
-## Current scope and limitations
-
-Phase I demonstrates synthesizable RTL simulation of the integrated default
-3x3 accelerator and structural checking with Yosys. It does not claim FPGA
-hardware operation, place-and-route, timing closure, clock frequency,
-resource utilization, or silicon measurements. Parameterized lower-level
-blocks are tested, but every possible top-level parameter combination is not
-certified by the integrated testbench.
-
-## Future development
-
-Future work may include FPGA implementation, device-specific synthesis,
-static timing analysis, resource analysis, larger matrix tiling, improved
-host transport, and throughput/power optimization.
+1. **No Physical FPGA Implementation or Timing Closure:** Target FPGA part/board are unspecified and vendor PnR/STA tools and physical hardware are unavailable; post-implementation $F_{\max}$, slack, power, and on-board validation remain unperformed.
+2. **Equal-Clock Throughput Assumption:** Performance `MMAC/s` comparisons assume a nominal `100.0 MHz` reference clock; actual wall-clock FPGA speedup requires post-PnR timing analysis.
+3. **Fixed Physical Array & Dataflow:** The verified top-level core is $3 \times 3$ output-stationary without sparsity support, overflow saturation, or double-buffered load/compute overlap; extension tiling supports $3 \times 3$ and $6 \times 6$ only.
+4. **Extension Area/Path Optimization Opportunity:** Refactoring `partial_result_buffer` addressing and synchronous resets would reduce extension LUT/DSP usage and potentially allow BRAM/DSP register packing in future work.

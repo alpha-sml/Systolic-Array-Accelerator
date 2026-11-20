@@ -1,0 +1,67 @@
+name: CI Verification
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  verify:
+    name: Simulation, Structural Checks, and Yosys Synthesis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install OSS CAD Suite (Icarus Verilog and Yosys)
+        uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify simulation and synthesis toolchain
+        run: |
+          iverilog -V | head -n 1
+          yosys -V
+          which yosys-abc
+          make --version | head -n 1
+          python3 --version
+
+      - name: Run functional regression suite
+        run: |
+          make clean
+          make demo
+          make test-core
+          make test-extensions
+          make test-baseline
+          make test
+
+      - name: Run RTL structural checks
+        run: |
+          make synth-check
+          make synth-check-tiled
+          make synth-check-integrated
+          make synth-check-baseline
+
+      - name: Run Yosys technology-mapped FPGA synthesis
+        run: make synth-fpga
+
+      - name: Run FPGA resource utilization report check
+        run: make fpga-utilization
+
+      - name: Run FPGA structural path analysis check
+        run: make fpga-path-analysis
+
+      - name: Dump synthesis logs on failure
+        if: failure()
+        run: |
+          for log in build/fpga/*.log build/fpga/*_rtl_ltp.txt; do
+            if [ -f "$log" ]; then
+              echo "=== $log (last 60 lines) ==="
+              tail -n 60 "$log"
+            fi
+          done
