@@ -90,7 +90,7 @@ Cross-check on Lattice ECP5 (`synth_ecp5 -top integrated_gemm_top`): **43,294 `L
 ### 4.4 Resource Findings
 1. **Core 3×3 Systolic Array is Compact:** `top_module` uses only **1,145 LUTs**, **1,026 FFs**, and **9 `DSP48E1`** (fewer LUTs and FFs than the `sequential_gemm` baseline, trading 8 additional DSPs for 9-way MAC parallelism).
 2. **`partial_result_buffer` Dominates Extension Area (~88% LUTs):** Nine parallel dynamic-index read-modify-write loops (`g_idx = g_row * matrix_dim + g_col`) across 36 register-backed 32-bit accumulators synthesize into large 36:1 mux trees.
-3. **10 Address-Arithmetic DSPs:** Beyond the 9 MAC DSPs, 10 extra `DSP48E1` slices are inferred from `integer * matrix_dim` linear index multiplications inside `partial_result_buffer` and `tiled_input_buffer`.
+3. **10 Additional Inferred DSPs (Likely Index Arithmetic):** Beyond the 9 MAC DSPs, 10 additional `DSP48E1` slices (`19` flattened total; `18` in hierarchical `-noiopad` mode, with `5` in `partial_result_buffer` and `4` in `tiled_input_buffer`) are likely attributable to `integer * matrix_dim` linear index multiplications inside `partial_result_buffer` and `tiled_input_buffer` (an inferred explanation from Yosys multiplier mapping logs rather than a confirmed cell-by-cell attribution).
 4. **Zero BRAM Inference:** Asynchronous `rst_n` `for`-loop resets across matrix memories map arrays to slice flip-flops rather than `RAMB18E1`/`RAMB36E1`, and keep `mac_unit` `DSP48E1` pipeline registers bypassed (`AREG=BREG=MREG=PREG=0`).
 
 ---

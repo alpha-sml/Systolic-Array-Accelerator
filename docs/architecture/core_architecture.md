@@ -1,6 +1,6 @@
 # Core Systolic Array Architecture (Phase I)
 
-This document describes the core 3×3 output-stationary systolic array matrix multiplication accelerator (`rtl/core/` and `rtl/interface/`). It represents the foundational project implementation documented in [the IEEE project report](../../report/report.pdf).
+This document describes the core 3×3 output-stationary systolic array matrix multiplication accelerator (`rtl/core/` and `rtl/interface/`). It represents the foundational project implementation documented in [the final combined Phase I + Phase II IEEE project report](../../report/report.pdf).
 
 ---
 

@@ -24,6 +24,6 @@
 
 - **Device Utilization (%):** Unavailable (target FPGA part and capacity are unspecified).
 - **Achieved Clock / $F_{\max}$:** Unavailable (no vendor STA performed; 100.0 MHz in performance analysis is an assumed reference clock only).
-- **Key Observation:** The core 3×3 systolic array (`top_module`) is compact (`1,145` LUTs, `9` `DSP48E1`), whereas `partial_result_buffer` contributes `88.2%` of hierarchical LUTs in `integrated_gemm_top` (`14,911` LUTs) and `integer * matrix_dim` index math infers 10 extra `DSP48E1` slices.
+- **Key Observation:** The core 3×3 systolic array (`top_module`) is compact (`1,145` LUTs, `9` `DSP48E1`), whereas `partial_result_buffer` contributes `88.2%` of hierarchical LUTs in `integrated_gemm_top` (`14,911` LUTs) and the 10 additional `DSP48E1` slices (`19` total vs. `9` MAC DSPs) are likely inferred from `integer * matrix_dim` index arithmetic in `partial_result_buffer` and `tiled_input_buffer` (an inferred explanation rather than a confirmed attribution).
 
 See [`README.md`](README.md) for methodology details and [`reports/`](reports/) for raw parsed summary files.

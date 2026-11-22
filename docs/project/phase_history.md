@@ -10,7 +10,7 @@ Phase I fulfilled the foundational B.Tech Modern Computer Architecture (MCA) req
 
 - **Scope:** Core compute array, finite-state controller, input/output buffers, host-facing matrix interface, six self-checking Icarus Verilog testbenches (376 counted checks + 94-cycle controller verification), interactive 3×3 prototype demo, analytical cycle/utilization derivations, and Yosys structural check (`make synth-check`).
 - **Artifacts:**
-  - IEEE Report: [`report/report.pdf`](../../report/report.pdf)
+  - Final Combined IEEE Report (Phase I + Phase II): [`report/report.pdf`](../../report/report.pdf) (originally authored as the Phase I IEEE report upon completion of the core 3×3 implementation and subsequently expanded into the final combined Phase I + Phase II report)
   - Presentation Video: [Watch Phase I Presentation](https://drive.google.com/file/d/1x2GeWZgQnMK2wWIYd1ib1YpxJbkEby2q/view?usp=sharing)
   - Current Source Locations: `rtl/core/`, `rtl/interface/`, `testbench/core/`, `testbench/interface/`
 

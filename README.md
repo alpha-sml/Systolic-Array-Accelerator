@@ -74,7 +74,7 @@ stateDiagram-v2
 
 ## 4. Phase I — Core Systolic Array Implementation
 
-Phase I forms the foundational MCA B.Tech project documented in [`report/report.pdf`](report/report.pdf) and [`docs/architecture/core_architecture.md`](docs/architecture/core_architecture.md).
+Phase I forms the foundational MCA B.Tech core implementation, documented alongside the Phase II extensions in the final combined Phase I + Phase II IEEE project report ([`report/report.pdf`](report/report.pdf)) and [`docs/architecture/core_architecture.md`](docs/architecture/core_architecture.md).
 
 - **Verified Default Configuration:** $3 \times 3$ output-stationary array, 8-bit signed two's-complement operands, 32-bit signed accumulators ($T_{\text{ctrl}} = 4N - 1 = 11$ cycles: `LOAD=3`, `COMPUTE=7`, `DONE=1`).
 - **Core 3×3 Demonstration Flow (`make demo`):**
@@ -134,7 +134,7 @@ Open-source technology-mapped synthesis (`Yosys 0.71+post`, `synth_xilinx -famil
 | `tiled_gemm_top` (Tiled Ext.) | 10,698 | 2,388 | 17 | 0 | 192 | 71 |
 | `integrated_gemm_top` (Integrated Ext.) | 12,919 | 2,549 | 19 | 0 | 234 | 120 |
 
-- **Key Resource Findings:** The 3×3 core (`top_module`) is compact (`1,145` LUTs, `9` `DSP48E1`). In the integrated extension (`integrated_gemm_top`), `partial_result_buffer` accounts for `88.2%` of hierarchical LUTs (`14,911`) due to 9-way parallel dynamic-index read-modify-write muxes, `integer * matrix_dim` index math infers `10` extra `DSP48E1` slices, and async `rst_n` `for`-loop resets prevent BRAM inference (`0` BRAM).
+- **Key Resource Findings:** The 3×3 core (`top_module`) is compact (`1,145` LUTs, `9` `DSP48E1`). In the integrated extension (`integrated_gemm_top`), `partial_result_buffer` accounts for `88.2%` of hierarchical LUTs (`14,911`) due to 9-way parallel dynamic-index read-modify-write muxes, the `10` additional `DSP48E1` slices (`19` total vs. `9` MAC DSPs) are likely inferred from `integer * matrix_dim` index arithmetic in `partial_result_buffer` and `tiled_input_buffer` (an inferred explanation from Yosys multiplier mapping logs rather than a confirmed attribution), and async `rst_n` `for`-loop resets prevent BRAM inference (`0` BRAM).
 - **Important Limitations:** Because no target FPGA part or board is specified in the project and vendor PnR/STA tools (`Vivado`, `Quartus`, `nextpnr`) and FPGA hardware are unavailable in this environment, **vendor synthesis, place-and-route, post-implementation $F_{\max}$, bitstream generation, and physical FPGA hardware testing were NOT RUN**.
 
 Full reports and details: [`fpga/README.md`](fpga/README.md) and [`fpga/RESULTS_SUMMARY.md`](fpga/RESULTS_SUMMARY.md).
@@ -189,7 +189,7 @@ Systolic-Array-Accelerator/
 │   ├── performance/             # Latency, throughput & speedup analysis
 │   └── project/                 # Phase I / Phase II history & layout mapping
 ├── report/
-│   └── report.pdf               # Phase I IEEE project report
+│   └── report.pdf               # Final combined Phase I + Phase II IEEE project report
 └── build/                       # Generated simulation/synthesis artifacts (gitignored)
 ```
 
@@ -237,7 +237,7 @@ Additional structural targets: `make synth-check-tiled`, `make synth-check-integ
 
 ## 11. Project Deliverables
 
-- **IEEE Project Report (Phase I):** [View Project Report](report/report.pdf)
+- **Final Combined IEEE Project Report (Phase I + Phase II):** [View Project Report](report/report.pdf)
 - **Demonstration Video (Phase I):** [Watch Presentation Video](https://drive.google.com/file/d/1x2GeWZgQnMK2wWIYd1ib1YpxJbkEby2q/view?usp=sharing)
 - **Core Architecture Documentation:** [`docs/architecture/core_architecture.md`](docs/architecture/core_architecture.md)
 - **Extension Architecture Documentation:** [`docs/architecture/extensions.md`](docs/architecture/extensions.md)
